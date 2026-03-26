@@ -118,6 +118,23 @@ echo "[build] Synced:"
 echo "  SKILL.md → $SKILLS_DIR/SKILL.md"
 echo "  references/DEV-LOOP.md → $SKILLS_DIR/references/DEV-LOOP.md"
 
+# ── Package .skill release ────────────────────────────────────────────────────
+RELEASE_DIR="$REPO_DIR/release"
+mkdir -p "$RELEASE_DIR"
+
+SKILL_PKG="$RELEASE_DIR/dev-loop.skill"
+
+python3 -c "
+import zipfile, os, sys
+pkg = sys.argv[1]
+repo = sys.argv[2]
+with zipfile.ZipFile(pkg, 'w', zipfile.ZIP_DEFLATED) as zf:
+    zf.write(os.path.join(repo, 'SKILL.md'), 'dev-loop/SKILL.md')
+    zf.write(os.path.join(repo, 'references/DEV-LOOP.md'), 'dev-loop/references/DEV-LOOP.md')
+" "$SKILL_PKG" "$REPO_DIR"
+
+echo "[build] Packaged: $SKILL_PKG ($(du -h "$SKILL_PKG" | cut -f1))"
+
 # ── Commit ────────────────────────────────────────────────────────────────────
 if [[ "$NO_COMMIT" == true ]]; then
   echo "[build] Skipping commit (--no-commit)"
