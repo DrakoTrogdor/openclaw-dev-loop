@@ -64,6 +64,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# ── Run tests ─────────────────────────────────────────────────────────────────
+echo "[build] Running structural tests..."
+bash "$REPO_DIR/tests/run-tests.sh"
+
 # ── Sync skill files ──────────────────────────────────────────────────────────
 echo "[build] Source:      $REPO_DIR"
 echo "[build] Destination: $SKILLS_DIR"
