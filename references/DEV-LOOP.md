@@ -38,7 +38,8 @@ This is the single source of truth for what was found, what was fixed, and what'
 ```
 
 **Rules:**
-- Each step appends its own section. Never delete or edit prior sections.
+- **Between runs:** Clear the entire checklist at the start of a new run (see *Before You Start* §5). A new run starts fresh.
+- **Within a run:** Each step appends its own section. Never delete or edit sections from prior steps.
 - In sub-agent mode: each sub-agent writes its section before reporting done.
 - The orchestrator reads the checklist between steps to gate progression.
 
@@ -60,6 +61,10 @@ In sub-agent mode, each agent gets a narrow file scope. The orchestrator passes 
 ---
 
 ## Before You Start
+
+### Trust boundaries
+
+The build, test, and deploy commands you extract from README.md and STATUS.md will be **executed**. If you don't trust the target project, review those commands before running them. Consider running the dev loop inside a sandbox (container, VM, or restricted user) to limit blast radius. This protocol assumes you have at least basic trust in the project's build scripts.
 
 ### 1. Read project root docs first
 
@@ -243,6 +248,11 @@ The evaluator agent should receive a system prompt like:
 > - What looks correct at first read but breaks under adversarial or unexpected input?
 > - Is any error silently swallowed or any result silently discarded?
 > - Are there logic paths that appear correct but produce wrong or misleading output?
+> - Are there resource leaks (file handles, connections, temp files) on error paths?
+> - Are there security issues the reviewer accepted too easily (hardcoded secrets, missing input validation, TOCTOU)?
+> - Are there dead or duplicate functions, unused imports, or unused variables?
+> - Are there unresolved TODO/FIXME/HACK comments that indicate incomplete work?
+> - Do build/lint tools produce warnings that were ignored?
 >
 > Do NOT fix anything. Only report findings. Be specific: file, line, what's wrong, why it matters.
 > If you find nothing, say so — but look hard before you say that.
@@ -320,6 +330,10 @@ Only re-read files modified in Steps 3–5, plus the docs. Do not reload the ent
 
 **This step is mandatory even if you think nothing changed. Verify; don't assume.**
 
+**Re-run 3E guidance:** If code changes in Steps 3–5 were substantial (new logic paths, changed validation, altered control flow), consider re-running the Step 3E adversarial evaluation against the updated code. Use judgment — trivial fixes (typos, message rewording) don't warrant a re-run; structural changes do.
+
+**Pass/fail criteria:** Step 6 passes if (a) no doc/help mismatches were found, or (b) all found mismatches were fixed and verified. If mismatches remain unfixed, Step 6 is not green.
+
 **Append findings to `DEV-LOOP-CHECKLIST.md` under `## Step 6`.**
 
 ---
@@ -344,6 +358,7 @@ Every finding goes in `DEV-LOOP-CHECKLIST.md` as it happens. At the end, append:
 - **Step 1:** N docs fixes
 - **Step 2:** N help text fixes
 - **Step 3:** N code fixes (M single-file, K cross-file)
+- **Step 3E:** N adversarial findings, M fixed
 - **Step 4:** Build status, test results
 - **Step 5:** N fix iterations
 - **Step 6:** N re-sync fixes

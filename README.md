@@ -10,6 +10,7 @@ Works with any language and toolchain: Rust, Node/TypeScript, Python, Go, or any
 
 ```
 dev-loop/
+├── .gitignore                        ← ignores __pycache__/, *.pyc, .pytest_cache/
 ├── README.md                         ← you are here (project spec + development guide)
 ├── SKILL.md                          ← agent-facing skill definition (loaded on trigger)
 ├── build.sh                          ← build, test, sync, commit, push
@@ -74,15 +75,15 @@ Every finding is written to `DEV-LOOP-CHECKLIST.md` in the target project root.
 ```
 
 **What `build.sh` does in order:**
-1. Runs structural tests (`tests/run-tests.sh`)
-2. Syncs `SKILL.md` + `references/DEV-LOOP.md` into the OpenClaw skills directory
+1. Runs structural tests (`tests/run-tests.sh`) — **exits immediately on failure** (`set -euo pipefail`)
+2. Syncs `SKILL.md` + `references/DEV-LOOP.md` into the OpenClaw skills directory (removes any stale files from a previous sync first, then copies fresh)
 3. Commits all changes with a timestamped message
-4. Pushes to the current branch (only when a commit was made)
+4. Pushes to the current branch (only when a commit was made; if there are no staged changes, prints "Nothing to commit" and warns about any unpushed local commits, then exits 0)
 
 **Skills directory auto-detection:**
-1. `--skills-dir` flag (explicit override, always wins)
+1. `--skills-dir` flag (explicit override, always wins — rejects empty strings and system paths like `/etc`, `/usr`)
 2. Sibling `skills/dev-loop` folder (workspace layout)
-3. `~/.openclaw/skills/dev-loop` (standard OpenClaw install)
+3. `~/.openclaw/skills/dev-loop` (standard OpenClaw install; requires `$HOME` to be set)
 
 ---
 
@@ -97,9 +98,12 @@ Every finding is written to `DEV-LOOP-CHECKLIST.md` in the target project root.
 
 Validates:
 - Fixture has all required files (README, STATUS, build.sh, source, tests)
-- Each planted flaw is verifiably present in the fixture
+- Fixture README references `build.sh` as the build command
+- Fixture STATUS.md has a Known Issues section and documents the `--times 0` bug
+- Each planted flaw is verifiably present in the fixture (F1–F4 checked via grep patterns)
 - Fixture build passes (baseline green before any agent touches it)
-- Skill has valid frontmatter and all 6 steps in the protocol
+- SKILL.md has `name:` and `description:` frontmatter fields
+- DEV-LOOP.md contains all steps (1, 2, 3, 3E, 4, 5, 6) and references README.md + STATUS.md
 
 ### Integration tests (requires agent run)
 
@@ -114,6 +118,8 @@ Validates:
 # Step 3: Assert the agent's output
 ./tests/run-tests.sh --mode integration --work-dir /tmp/dev-loop-test-XXXXXX
 ```
+
+**Note:** Integration mode always runs structural tests first, then the integration-specific assertions. If structural tests fail, integration assertions are skipped.
 
 Integration assertions check:
 - `DEV-LOOP-CHECKLIST.md` was created in the temp dir
@@ -136,7 +142,7 @@ Integration assertions check:
 | F1 | Step 1 | README documents `--reverse` flag | Flag does not exist in code |
 | F2 | Step 2 | `--times` help text says `default: 1` | Actual argparse default is `3` |
 | F3a | Step 3 | No guard on `--times 0` | `while i < args.times` silently produces no output when times ≤ 0 (loop body never runs; no error raised for invalid input) |
-| F3b | Step 3 | `args.name.encode("ascii")` | Result silently discarded — intent was to validate ASCII-only names but the error isn't caught or used |
+| F3b | Step 3 | `args.name.encode("ascii")` | Result silently discarded — intent was to validate ASCII-only names but for ASCII input the return value is unused, and for non-ASCII input the `UnicodeEncodeError` is unhandled (crashes with a traceback instead of a friendly error) |
 | F3c | Step 3 | `import os` | Unused import |
 | F4 | Step 3E | `build_greeting` has no validation on empty name | Empty `--name ""` produces `"Hello, !"` (or `"HELLO, !"` with `--shout`) — a grammatically broken greeting with no validation to catch it (designed to test adversarial evaluation) |
 
@@ -160,13 +166,13 @@ This skill is designed to improve itself using its own protocol.
 ### The loop
 
 ```
-┌─ run-tests.sh --mode integration          (create temp fixture)
+┌─ run-tests.sh --mode integration          (create temp fixture)     [automated]
 │
-├─ agent runs dev-loop on temp fixture       (skill under test)
+├─ agent runs dev-loop on temp fixture       (skill under test)        [manual]
 │
-├─ run-tests.sh --work-dir <tmp>            (assert findings)
+├─ run-tests.sh --work-dir <tmp>            (assert findings)          [automated]
 │
-├─ evaluate: what did it miss? what was wrong?
+├─ evaluate: what did it miss? what was wrong?                         [manual]
 │   │
 │   ├─ Missed a planted flaw?     → Improve DEV-LOOP.md instructions for that step
 │   ├─ Hallucinated a finding?    → Tighten criteria language
@@ -174,9 +180,9 @@ This skill is designed to improve itself using its own protocol.
 │   ├─ Skipped adversarial eval?  → Make Step 3E instructions more explicit
 │   └─ Self-approved bad work?    → Strengthen evaluator prompt in Step 3E
 │
-├─ edit SKILL.md and/or references/DEV-LOOP.md
+├─ edit SKILL.md and/or references/DEV-LOOP.md                        [manual]
 │
-├─ build.sh --msg "improve: <what and why>"  (test → sync → commit → push)
+├─ build.sh --msg "improve: <what and why>"  (test → sync → commit → push) [automated]
 │
 └─ repeat
 ```

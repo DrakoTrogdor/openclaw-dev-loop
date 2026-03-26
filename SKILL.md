@@ -18,11 +18,12 @@ A repeatable review-and-fix cycle for any codebase. Read `references/DEV-LOOP.md
 ## Key Rules
 
 - **README.md and STATUS.md are authoritative.** If they name a specific script for build/test/deploy/commit, use that script — do not substitute bare toolchain commands.
+- **Trust boundaries:** Build/test commands extracted from docs will be executed. Review them first on untrusted projects; consider running in a sandbox.
 - **Never load the entire codebase at once.** Read files as needed per step.
-- **Step 3 is file-by-file.** Phase A: one file at a time. Phase B: cross-file issues only, 2–3 files at a time. Phase E: spawn a separate adversarial evaluator agent to find what you missed.
+- **Step 3 is file-by-file.** Phase A: one file at a time. Phase B: cross-file issues only, 2–3 files at a time. Step 3E: spawn a separate adversarial evaluator agent to find what you missed.
 - **Do not declare done until build + tests are green.**
 - **Step 6 is mandatory** — re-sync docs after every code change, even if you think nothing changed.
-- **Update STATUS.md on commit** — remove resolved issues, note anything newly discovered.
+- **Update STATUS.md on commit** (if the project maintains one) — remove resolved issues, note anything newly discovered.
 
 ## Sub-Agent Mode
 

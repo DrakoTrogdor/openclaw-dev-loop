@@ -3,7 +3,7 @@
 # Runs structural tests, syncs skill files into the OpenClaw skills directory,
 # then stages, commits, and pushes.
 #
-# Usage: ./build.sh [--msg "commit body"] [--skills-dir <path>] [--no-commit]
+# Usage: ./build.sh [--msg "commit body"] [--skills-dir <path>] [--no-commit] [-h|--help]
 #   --msg          Optional commit body appended to the timestamp title
 #   --skills-dir   Override the target skills directory (default: auto-detected)
 #   --no-commit    Run tests and sync files; skip git add, commit, and push
@@ -17,11 +17,14 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #   2. Sibling skills/ folder (workspace layout: repo lives next to skills/)
 #   3. ~/.openclaw/skills/dev-loop (standard OpenClaw install location)
 _SIBLING_SKILLS="$(dirname "$REPO_DIR")/skills/dev-loop"
-_DEFAULT_SKILLS="$HOME/.openclaw/skills/dev-loop"
 if [[ -d "$(dirname "$REPO_DIR")/skills" ]]; then
   SKILLS_DIR="$_SIBLING_SKILLS"
+elif [[ -n "${HOME:-}" ]]; then
+  SKILLS_DIR="$HOME/.openclaw/skills/dev-loop"
 else
-  SKILLS_DIR="$_DEFAULT_SKILLS"
+  # HOME is unset and no sibling skills/ directory exists.
+  # Can't compute default skills path. Require --skills-dir.
+  SKILLS_DIR=""
 fi
 COMMIT_BODY=""
 NO_COMMIT=false
@@ -61,12 +64,29 @@ while [[ $# -gt 0 ]]; do
     --msg)        [[ $# -ge 2 ]] || { echo "Error: --msg requires an argument"; usage; exit 1; }
                   COMMIT_BODY="$2"; shift 2 ;;
     --skills-dir) [[ $# -ge 2 ]] || { echo "Error: --skills-dir requires an argument"; usage; exit 1; }
+                  [[ -n "$2" ]] || { echo "Error: --skills-dir cannot be empty"; exit 1; }
                   SKILLS_DIR="$2"; SKILLS_DIR_OVERRIDE="$2"; shift 2 ;;
     --no-commit)  NO_COMMIT=true;   shift   ;;
     -h|--help)    usage; exit 0             ;;
     *) echo "Unknown argument: $1"; echo ""; usage; exit 1 ;;
   esac
 done
+
+# ── Validate SKILLS_DIR ────────────────────────────────────────────────────────
+if [[ -z "$SKILLS_DIR" ]]; then
+  echo "Error: Cannot determine skills directory. \$HOME is unset and no sibling skills/ directory exists."
+  echo "       Use --skills-dir <path> to specify the target explicitly."
+  exit 1
+fi
+
+# ── Validate --skills-dir path safety ─────────────────────────────────────────
+case "$SKILLS_DIR" in
+  /etc/*|/usr/*|/bin/*|/sbin/*|/sys/*|/proc/*)
+    echo "Error: --skills-dir path '$SKILLS_DIR' looks like a system directory."
+    echo "       Refusing to write skill files there. Use a path under your home or workspace."
+    exit 1
+    ;;
+esac
 
 # ── Run tests ─────────────────────────────────────────────────────────────────
 echo "[build] Running structural tests..."
@@ -85,6 +105,10 @@ else
   echo "[build] (resolved: --skills-dir override)"
 fi
 
+# Clean target to remove stale files from previous versions, then copy fresh
+if [[ -d "$SKILLS_DIR" ]]; then
+  rm -rf "$SKILLS_DIR"
+fi
 mkdir -p "$SKILLS_DIR/references"
 
 cp "$REPO_DIR/SKILL.md"               "$SKILLS_DIR/SKILL.md"
@@ -115,6 +139,14 @@ git add -A
 
 if git diff --cached --quiet; then
   echo "[build] Nothing to commit."
+  BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+  if [[ "$BRANCH" != "HEAD" ]] && git rev-parse --verify "origin/$BRANCH" >/dev/null 2>&1; then
+    UNPUSHED="$(git log "origin/$BRANCH..HEAD" --oneline 2>/dev/null)"
+    if [[ -n "$UNPUSHED" ]]; then
+      echo "[build] Warning: unpushed commits on $BRANCH:"
+      echo "$UNPUSHED" | sed 's/^/  /'
+    fi
+  fi
 else
   git commit -m "$COMMIT_MSG"
   echo "[build] Committed: $COMMIT_MSG"

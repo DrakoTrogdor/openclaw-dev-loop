@@ -5,11 +5,11 @@
 #   structural   Verify the fixture has correct structure and planted flaws are present.
 #                Fully automated, no agent required. Runs against the real fixture (read-only).
 #
-#   integration  Copies the fixture into a temp directory, runs the agent against the copy,
-#                asserts on DEV-LOOP-CHECKLIST.md output, then cleans up.
-#                The real fixture is never modified.
+#   integration  Copies the fixture into a temp directory, prints instructions for running
+#                the agent against the copy, asserts on DEV-LOOP-CHECKLIST.md output if
+#                present, then cleans up.  The real fixture is never modified.
 #
-# Usage: ./run-tests.sh [--mode structural|integration] [-v]
+# Usage: ./run-tests.sh [--mode structural|integration] [--work-dir <path>] [-v] [-h|--help]
 
 set -euo pipefail
 
@@ -41,7 +41,7 @@ while [[ $# -gt 0 ]]; do
                  MODE="$2"; shift 2 ;;
     --work-dir)  [[ $# -ge 2 ]] || { echo "Error: --work-dir requires an argument"; usage; exit 1; }
                  if [[ ! -d "$2" ]]; then
-                   echo "Error: --work-dir path does not exist: $2"; exit 1
+                   echo "Error: --work-dir path is not a directory or does not exist: $2"; exit 1
                  fi
                  WORK_DIR="$2"; WORK_DIR_USER=true; shift 2 ;;
     -v|--verbose) VERBOSE=true; shift ;;
@@ -62,6 +62,10 @@ assert_file_exists() {
 
 assert_file_contains() {
   local file="$1" pattern="$2" label="$3"
+  if [[ ! -f "$file" ]]; then
+    fail "$label — file missing: $file"
+    return
+  fi
   if grep -Eq "$pattern" "$file" 2>/dev/null; then
     pass "$label"
   else
@@ -105,7 +109,11 @@ setup_work_dir() {
     return
   fi
   WORK_DIR="$(mktemp -d /tmp/dev-loop-test-XXXXXX)"
+  # Register cleanup trap — respects WORK_DIR_USER flag (don't delete user-provided dirs)
+  trap 'teardown_work_dir' EXIT INT TERM
   cp -r "$FIXTURE_DIR/." "$WORK_DIR/"
+  # Remove cache dirs copied from fixture (stale .pyc files, pytest metadata)
+  find "$WORK_DIR" -type d \( -name '__pycache__' -o -name '.pytest_cache' \) -exec rm -rf {} + 2>/dev/null || true
   # Remove any leftover checklist from a previous run (shouldn't exist in the
   # canonical fixture, but guard anyway so assertions start clean)
   rm -f "$WORK_DIR/DEV-LOOP-CHECKLIST.md"
@@ -219,8 +227,8 @@ run_structural() {
 }
 
 # ── Integration tests ─────────────────────────────────────────────────────────
-# The agent runs against a TEMP COPY of the fixture, not the real fixture.
-# Call setup_work_dir before invoking the agent; teardown_work_dir after assertions.
+# Sets up a temp copy of the fixture for the agent to run against (manually).
+# Call setup_work_dir to create the copy; teardown_work_dir after assertions.
 
 run_integration() {
   echo ""
