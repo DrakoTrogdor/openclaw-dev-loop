@@ -23,10 +23,15 @@ dev-loop/
         │   ├── README.md, STATUS.md, build.sh
         │   ├── src/greeter.py        ← source with planted bugs
         │   └── tests/test_greeter.py
-        └── rust-counter/             ← Rust CLI fixture
+        ├── rust-counter/             ← Rust CLI fixture
+        │   ├── README.md, STATUS.md, build.sh
+        │   ├── Cargo.toml
+        │   └── src/main.rs           ← source with planted bugs
+        └── openclaw-skill/           ← OpenClaw skill fixture
             ├── README.md, STATUS.md, build.sh
-            ├── Cargo.toml
-            └── src/main.rs           ← source with planted bugs
+            ├── SKILL.md              ← skill definition with planted flaws
+            ├── scripts/bookmarks.sh  ← CLI with planted bugs
+            └── references/           ← STORAGE.md, SEARCH.md
 ```
 
 ### What lives where
