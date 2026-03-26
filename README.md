@@ -17,18 +17,21 @@ dev-loop/
 ├── references/
 │   └── DEV-LOOP.md                   ← full step-by-step protocol (loaded by agent)
 └── tests/
-    ├── run-tests.sh                  ← structural + integration test runner
+    ├── run-tests.sh                  ← structural + integration test runner (auto-discovers fixtures via test.sh)
     └── fixtures/                     ← test projects with planted flaws
         ├── python-greeter/           ← Python CLI fixture
         │   ├── README.md, STATUS.md, build.sh
+        │   ├── test.sh              ← structural assertions (sourced by run-tests.sh)
         │   ├── src/greeter.py        ← source with planted bugs
         │   └── tests/test_greeter.py
         ├── rust-counter/             ← Rust CLI fixture
         │   ├── README.md, STATUS.md, build.sh
+        │   ├── test.sh              ← structural assertions (sourced by run-tests.sh)
         │   ├── Cargo.toml
         │   └── src/main.rs           ← source with planted bugs
         └── openclaw-skill/           ← OpenClaw skill fixture
             ├── README.md, STATUS.md, build.sh
+            ├── test.sh              ← structural assertions (sourced by run-tests.sh)
             ├── SKILL.md              ← skill definition with planted flaws
             ├── scripts/bookmarks.sh  ← CLI with planted bugs
             └── references/           ← STORAGE.md, SEARCH.md
@@ -41,7 +44,7 @@ dev-loop/
 | `README.md` | Humans + agents running dev-loop on *this* repo | Project spec, structure, build/test/commit commands, self-improvement process |
 | `SKILL.md` | OpenClaw skill loader | Trigger description, key rules, pointer to protocol |
 | `references/DEV-LOOP.md` | Agent after skill triggers | The full 6-step protocol an agent follows when running the dev loop on *any* project |
-| `tests/fixture/` | Test runner + agents under test | A deliberately broken micro-project for testing the skill |
+| `tests/fixtures/` | Test runner + agents under test | Deliberately broken micro-projects for testing the skill (one per language/project type) |
 
 ---
 
@@ -104,13 +107,18 @@ Every finding is written to `DEV-LOOP-CHECKLIST.md` in the target project root.
 ./tests/run-tests.sh -v           # verbose — shows each passing check
 ```
 
-Validates:
-- Fixture has all required files (README, STATUS, build.sh, source, tests)
-- Fixture README references `build.sh` as the build command
-- Fixture STATUS.md has a Known Issues section and documents the `--times 0` bug
-- Each planted flaw is verifiably present in the fixture (F1–F4 checked via grep patterns)
+The runner auto-discovers fixtures by iterating `tests/fixtures/*/` and sourcing each fixture's `test.sh` (which must define `run_fixture_structural()`). Each fixture runs in a subshell with full isolation — a broken or crashing fixture won't take down the test runner. The total check count scales with the number of fixtures and assertions.
+
+Per-fixture checks:
+- Required files exist (README, STATUS, build.sh, source files, test.sh)
+- README references `build.sh` as the build command
+- STATUS.md has a Known Issues section documenting key bugs
+- Each planted flaw (F1, F2, F3a–F3c, F3E) is verifiably present via grep patterns
 - Fixture build passes (baseline green before any agent touches it)
+
+Skill-level checks (not fixture-specific):
 - SKILL.md has `name:` and `description:` frontmatter fields
+- SKILL.md YAML frontmatter is valid (parseable by `yaml.safe_load`)
 - DEV-LOOP.md contains all steps (1, 2, 3, 3E, 4, 5, 6) and references README.md + STATUS.md
 
 ### Integration tests (requires agent run)
@@ -139,11 +147,15 @@ Integration assertions check:
 
 ---
 
-## Test Fixture
+## Test Fixtures
 
-`tests/fixture/` is a tiny Python CLI (`greeter.py`) with **deliberately planted flaws** — one per skill step category. These exist to test that the skill catches what it should.
+`tests/fixtures/` contains three micro-projects with **deliberately planted flaws** — one per skill step category, across different languages and project types. These exist to test that the skill catches what it should regardless of ecosystem.
 
-### Planted flaws
+Each fixture defines a `test.sh` that exports a `run_fixture_structural()` function. The test runner auto-discovers fixtures by iterating `tests/fixtures/*/` and sourcing each `test.sh`.
+
+### Planted flaws — python-greeter
+
+A tiny Python CLI (`greeter.py`).
 
 | ID | Step | Flaw | What the agent should find |
 |----|------|------|---------------------------|
@@ -152,17 +164,43 @@ Integration assertions check:
 | F3a | Step 3 | No guard on `--times 0` | `while i < args.times` silently produces no output when times ≤ 0 (loop body never runs; no error raised for invalid input) |
 | F3b | Step 3 | `args.name.encode("ascii")` | Result silently discarded — intent was to validate ASCII-only names but for ASCII input the return value is unused, and for non-ASCII input the `UnicodeEncodeError` is unhandled (crashes with a traceback instead of a friendly error) |
 | F3c | Step 3 | `import os` | Unused import |
-| F4 | Step 3E | `build_greeting` has no validation on empty name | Empty `--name ""` produces `"Hello, !"` (or `"HELLO, !"` with `--shout`) — a grammatically broken greeting with no validation to catch it (designed to test adversarial evaluation) |
+| F3E | Step 3E | `build_greeting` has no validation on empty name | Empty `--name ""` produces `"Hello, !"` (or `"HELLO, !"` with `--shout`) — a grammatically broken greeting with no validation to catch it (designed to test adversarial evaluation) |
 
-**Do not fix these flaws in the fixture.** They are the test cases. If the agent fixes them during an integration run, the structural tests will detect the fixture is corrupted.
+### Planted flaws — rust-counter
+
+A Rust CLI that counts word occurrences from stdin.
+
+| ID | Step | Flaw | What the agent should find |
+|----|------|------|---------------------------|
+| F1 | Step 1 | README documents `--ignore-case` flag | Flag is not implemented in code |
+| F2 | Step 2 | Help text says "Counts lines containing \<word\>" | Code actually counts occurrences (`.matches(word).count()`), not lines |
+| F3a | Step 3 | No guard on empty `--word ""` | `"".matches("")` panics or produces nonsensical results |
+| F3b | Step 3 | `.unwrap()` on line read | Panics on invalid UTF-8 instead of handling the error |
+| F3c | Step 3 | `use std::collections::HashMap` | Unused import |
+| F3E | Step 3E | Per-line counting via `reader.lines()` | Words spanning a line boundary (e.g. "hel\nlo" for "hello") are silently missed — the logic looks correct because `.matches()` works fine on each individual line; only adversarial thinking about input shaping catches this |
+
+### Planted flaws — openclaw-skill (bookmark-manager)
+
+An OpenClaw skill with a bash CLI for managing bookmarks.
+
+| ID | Step | Flaw | What the agent should find |
+|----|------|------|---------------------------|
+| F1 | Step 1 | SKILL.md documents `export --format csv` | Script only supports `html\|json` — csv case is not implemented |
+| F2 | Step 2 | Help text says "search by date range" | Date range filtering is not implemented |
+| F3a | Step 3 | `save_bookmark` accepts any string as URL | No URL validation — empty string, spaces, garbage all accepted |
+| F3b | Step 3 | `delete_bookmark` uses `grep -v "$url"` | Regex metacharacters in URL (e.g. `?`, `+`, `.`) silently match and delete unrelated bookmarks |
+| F3c | Step 3 | `BACKUP_DIR` defined but never used | Unused variable |
+| F3E | Step 3E | Tag case mismatch between save and search | `save_bookmark` lowercases tags via `tr`, but `search_bookmarks` uses the tag variable as-is — searching for "Docs" never matches the stored "docs" tag. Each function looks correct in isolation; only cross-function adversarial review catches the interaction bug |
+
+**Do not fix these flaws in the fixtures.** They are the test cases. If the agent fixes them during an integration run, the structural tests will detect the fixture is corrupted.
 
 ### Adding new planted flaws
 
 When adding a flaw:
-1. Plant it in `tests/fixture/src/greeter.py` (or README/STATUS as appropriate)
-2. Add a structural assertion in `tests/run-tests.sh` to verify the flaw exists
-3. Add an integration assertion to verify the agent found it
-4. Add a row to the table above
+1. Plant it in the appropriate fixture's source file (or README/STATUS/SKILL.md as appropriate)
+2. Add a structural assertion in the fixture's `test.sh` to verify the flaw exists
+3. Add an integration assertion in `run-tests.sh` to verify the agent found it (if applicable)
+4. Add a row to the appropriate table above
 5. Run `./build.sh --msg "test: add flaw FN — <description>"`
 
 ---
@@ -197,14 +235,14 @@ This skill is designed to improve itself using its own protocol.
 
 ### What "improving the skill" means concretely
 
-The skill's quality is measured by how many of the planted flaws the agent finds on a clean run against the fixture. When a flaw is consistently missed:
+The skill's quality is measured by how many of the planted flaws the agent finds on a clean run against each fixture. When a flaw is consistently missed:
 
 1. Re-read the relevant step in `DEV-LOOP.md`
 2. Ask: is the instruction clear enough? Is it specific enough? Would a cold-start agent with no prior context follow this step and catch this flaw?
 3. Edit the step — add an explicit check, a concrete example, or a stronger directive
 4. Re-run the integration test and see if the finding appears
 
-The adversarial evaluation step (Step 3E) specifically targets flaws that a generator agent reviewing its own work would miss. If the skill is catching F1–F3c but missing F4, the evaluator prompt or protocol needs strengthening.
+The adversarial evaluation step (Step 3E) specifically targets flaws that a generator agent reviewing its own work would miss. If the skill is catching F1–F3c but missing F3E across fixtures, the evaluator prompt or protocol needs strengthening.
 
 ---
 

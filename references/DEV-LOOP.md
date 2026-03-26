@@ -213,6 +213,7 @@ For each cross-file issue: load only the 2–3 relevant files together and fix a
 - Decode/parse errors surfaced with context, not silently swallowed?
 - Strict parsing where appropriate (reject unknown fields, trailing data)?
 - Edge cases covered: empty input, max-size input, unicode, null bytes?
+- Regex/pattern injection: is user input or variable data passed to `grep`, `sed`, `[[ =~ ]]`, or other regex engines without escaping metacharacters (`.`, `*`, `?`, `+`, `|`, `(`, etc.)? Unescaped variables in patterns can silently match or delete unrelated data.
 
 #### Code quality
 - No dead or duplicate functions
@@ -254,6 +255,7 @@ The evaluator agent should receive a system prompt like:
 > - Are there dead or duplicate functions, unused imports, or unused variables?
 > - Are there unresolved TODO/FIXME/HACK comments that indicate incomplete work?
 > - Do build/lint tools produce warnings that were ignored?
+> - Do functions that produce and consume the same data agree on its format (case, encoding, delimiters, quoting)? For example: function A lowercases tags before storing, but function B searches with the original case — they look correct in isolation but fail when composed.
 >
 > Do NOT fix anything. Only report findings. Be specific: file, line, what's wrong, why it matters.
 > If you find nothing, say so — but look hard before you say that.

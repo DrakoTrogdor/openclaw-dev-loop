@@ -2,12 +2,13 @@
 # run-tests.sh — Test suite for the dev-loop skill.
 #
 # Modes:
-#   structural   Verify the fixture has correct structure and planted flaws are present.
-#                Fully automated, no agent required. Runs against the real fixture (read-only).
+#   structural   Verify every fixture in fixtures/ has correct structure and planted flaws.
+#                Fully automated, no agent required. Loops over all fixtures (read-only).
 #
-#   integration  Copies the fixture into a temp directory, prints instructions for running
-#                the agent against the copy, asserts on DEV-LOOP-CHECKLIST.md output if
-#                present, then cleans up.  The real fixture is never modified.
+#   integration  Copies the default fixture (python-greeter) into a temp directory, prints
+#                instructions for running the agent against the copy, asserts on
+#                DEV-LOOP-CHECKLIST.md output if present, then cleans up.
+#                The real fixture is never modified.
 #
 # Usage: ./run-tests.sh [--mode structural|integration] [--work-dir <path>] [-v] [-h|--help]
 
@@ -29,6 +30,9 @@ Usage: ./run-tests.sh [options]
 
 Options:
   --mode <mode>        Test mode: structural (default) or integration
+                       structural: loops over every fixture in fixtures/
+                       integration: runs structural, then sets up a temp copy
+                       of the default fixture for agent testing
   --work-dir <path>    Re-use an existing temp fixture dir for integration assertions
                        (skips setup; useful after an agent has already run)
   -v, --verbose        Show details for passing checks too
@@ -101,7 +105,7 @@ assert_build_passes() {
 }
 
 # ── Temp workspace ────────────────────────────────────────────────────────────
-# Creates an isolated copy of the fixture for agent runs.
+# Creates an isolated copy of the default fixture (python-greeter) for agent runs.
 # The real fixture is never touched during integration tests.
 
 setup_work_dir() {
@@ -138,7 +142,22 @@ run_structural() {
   echo "── Structural Tests ─────────────────────────────────────────────────────────"
 
   # ── Test each fixture ─────────────────────────────────────────────────────────
-  for fixture_dir in "$FIXTURES_DIR"/*/; do
+  # Save the default FIXTURE_DIR (used by integration tests later)
+  local saved_fixture_dir="$FIXTURE_DIR"
+
+  # Prevent the glob from iterating a literal "*//" when the fixtures directory
+  # is empty or missing — bash expands the raw glob string without nullglob.
+  shopt -s nullglob
+  local fixture_dirs=( "$FIXTURES_DIR"/*/ )
+  shopt -u nullglob
+
+  if [[ ${#fixture_dirs[@]} -eq 0 ]]; then
+    echo ""
+    echo "  [WARN] No fixture directories found in $FIXTURES_DIR"
+    fail "No fixtures discovered — expected at least one directory in $FIXTURES_DIR"
+  fi
+
+  for fixture_dir in "${fixture_dirs[@]}"; do
     local fixture_name
     fixture_name="$(basename "$fixture_dir")"
     local test_file="$fixture_dir/test.sh"
@@ -151,17 +170,80 @@ run_structural() {
       continue
     fi
 
-    # Source the fixture's test definitions (provides run_fixture_structural)
+    # Each fixture's test.sh is executed in a subshell to provide full isolation:
+    #   - Prevents helper hijacking (a test.sh redefining pass/fail/assert_*)
+    #   - Prevents `exit` in test.sh from killing the runner
+    #   - Prevents global variable mutation (PASS, FAIL, VERBOSE, MODE, etc.)
+    #
+    # The subshell inherits the helper functions and VERBOSE/FIXTURE_DIR via
+    # export and function export. It communicates results back by printing a
+    # sentinel line: __RESULT__:<pass_count>:<fail_count>
+    #
+    # NOTE: fixture test.sh files run under `set -euo pipefail` inherited from
+    # this parent shell. New fixtures must be written with that in mind — any
+    # unguarded non-zero exit or unset variable reference will abort the subshell
+    # (not the runner, thanks to isolation), and the fixture will report 0/0
+    # with a failure logged.
     FIXTURE_DIR="$fixture_dir"
-    source "$test_file"
+    local sub_output sub_pass sub_fail
+    sub_output="$(
+      # Re-declare helpers inside the subshell (they don't inherit automatically)
+      _SUB_PASS=0
+      _SUB_FAIL=0
+      pass()  { _SUB_PASS=$((_SUB_PASS+1)); [[ "$VERBOSE" == true ]] && echo "  [PASS] $1" || true; }
+      fail()  { _SUB_FAIL=$((_SUB_FAIL+1)); echo "  [FAIL] $1"; }
+      assert_file_exists() {
+        local file="$1" label="$2"
+        if [[ -f "$file" ]]; then pass "$label exists"; else fail "$label missing: $file"; fi
+      }
+      assert_file_contains() {
+        local file="$1" pattern="$2" label="$3"
+        if [[ ! -f "$file" ]]; then fail "$label — file missing: $file"; return; fi
+        if grep -Eq "$pattern" "$file" 2>/dev/null; then pass "$label"; else fail "$label — pattern not found: '$pattern' in $file"; fi
+      }
+      assert_file_not_contains() {
+        local file="$1" pattern="$2" label="$3"
+        if [[ ! -f "$file" ]]; then fail "$label — file missing: $file"; return; fi
+        if ! grep -Eq "$pattern" "$file" 2>/dev/null; then pass "$label"; else fail "$label — unexpected pattern found: '$pattern' in $file"; fi
+      }
+      assert_build_passes() {
+        local dir="$1" label="$2"
+        local build_output
+        if build_output="$(bash "$dir/build.sh" --no-commit 2>&1)"; then pass "$label"; else
+          fail "$label — build.sh exited non-zero"
+          echo "    ── build output ──"
+          echo "$build_output" | sed 's/^/    /'
+          echo "    ───────────────────"
+        fi
+      }
 
-    if declare -f run_fixture_structural > /dev/null 2>&1; then
-      run_fixture_structural
-      unset -f run_fixture_structural
+      source "$test_file"
+      if declare -f run_fixture_structural > /dev/null 2>&1; then
+        run_fixture_structural
+      else
+        fail "$fixture_name: test.sh does not define run_fixture_structural()"
+      fi
+      echo "__RESULT__:${_SUB_PASS}:${_SUB_FAIL}"
+    )" || true  # Don't let subshell failure (e.g. set -e) kill the runner
+
+    # Parse results from the subshell's sentinel line
+    local result_line
+    result_line="$(echo "$sub_output" | grep '^__RESULT__:' | tail -1)"
+    # Print all output except the sentinel line
+    echo "$sub_output" | grep -v '^__RESULT__:'
+
+    if [[ -n "$result_line" ]]; then
+      sub_pass="$(echo "$result_line" | cut -d: -f2)"
+      sub_fail="$(echo "$result_line" | cut -d: -f3)"
+      PASS=$((PASS + sub_pass))
+      FAIL=$((FAIL + sub_fail))
     else
-      fail "$fixture_name: test.sh does not define run_fixture_structural()"
+      # Subshell crashed or exited before printing results
+      fail "$fixture_name: test.sh exited unexpectedly (no results returned)"
     fi
   done
+  # Restore FIXTURE_DIR so integration tests use the default fixture
+  FIXTURE_DIR="$saved_fixture_dir"
 
   # ── Skill-level tests (not fixture-specific) ─────────────────────────────────
   echo ""
@@ -203,7 +285,7 @@ yaml.safe_load(fm)
 }
 
 # ── Integration tests ─────────────────────────────────────────────────────────
-# Sets up a temp copy of the fixture for the agent to run against (manually).
+# Sets up a temp copy of the default fixture for the agent to run against (manually).
 # Call setup_work_dir to create the copy; teardown_work_dir after assertions.
 
 run_integration() {
