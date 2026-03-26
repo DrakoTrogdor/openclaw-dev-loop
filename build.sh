@@ -10,9 +10,21 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SKILLS_DIR="$(dirname "$REPO_DIR")/skills/dev-loop"
+
+# Resolve SKILLS_DIR in priority order:
+#   1. --skills-dir flag (set later in arg parsing)
+#   2. Sibling skills/ folder (workspace layout: repo lives next to skills/)
+#   3. ~/.openclaw/skills/dev-loop (standard OpenClaw install location)
+_SIBLING_SKILLS="$(dirname "$REPO_DIR")/skills/dev-loop"
+_DEFAULT_SKILLS="$HOME/.openclaw/skills/dev-loop"
+if [[ -d "$(dirname "$REPO_DIR")/skills" ]]; then
+  SKILLS_DIR="$_SIBLING_SKILLS"
+else
+  SKILLS_DIR="$_DEFAULT_SKILLS"
+fi
 COMMIT_BODY=""
 NO_COMMIT=false
+SKILLS_DIR_OVERRIDE=""
 
 usage() {
   cat <<EOF
@@ -24,7 +36,9 @@ Options:
   --msg <message>       Commit body appended to the timestamp title
                         e.g. --msg "feat: improve step 3 instructions"
   --skills-dir <path>   Override the target skills directory
-                        (default: <repo-parent>/skills/dev-loop)
+                        Auto-detected in order:
+                          1. <repo-parent>/skills/dev-loop  (if sibling skills/ exists)
+                          2. ~/.openclaw/skills/dev-loop    (standard install location)
   --no-commit           Sync files only; skip git add, commit, and push
   -h, --help            Show this help message
 
@@ -43,7 +57,7 @@ EOF
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --msg)        COMMIT_BODY="$2"; shift 2 ;;
-    --skills-dir) SKILLS_DIR="$2";  shift 2 ;;
+    --skills-dir) SKILLS_DIR="$2"; SKILLS_DIR_OVERRIDE="$2"; shift 2 ;;
     --no-commit)  NO_COMMIT=true;   shift   ;;
     -h|--help)    usage; exit 0             ;;
     *) echo "Unknown argument: $1"; echo ""; usage; exit 1 ;;
@@ -53,6 +67,15 @@ done
 # ── Sync skill files ──────────────────────────────────────────────────────────
 echo "[build] Source:      $REPO_DIR"
 echo "[build] Destination: $SKILLS_DIR"
+if [[ -z "$SKILLS_DIR_OVERRIDE" ]]; then
+  if [[ "$SKILLS_DIR" == "$_SIBLING_SKILLS" ]]; then
+    echo "[build] (resolved: sibling skills/ folder)"
+  else
+    echo "[build] (resolved: ~/.openclaw/skills/dev-loop)"
+  fi
+else
+  echo "[build] (resolved: --skills-dir override)"
+fi
 
 mkdir -p "$SKILLS_DIR/references"
 
