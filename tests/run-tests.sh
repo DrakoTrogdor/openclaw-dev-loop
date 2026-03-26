@@ -14,7 +14,8 @@
 set -euo pipefail
 
 TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FIXTURE_DIR="$TESTS_DIR/fixtures/python-greeter"  # default fixture — never modified by tests
+FIXTURES_DIR="$TESTS_DIR/fixtures"
+FIXTURE_DIR="$FIXTURES_DIR/python-greeter"  # default fixture for integration tests
 WORK_DIR=""                        # temp copy used by integration tests (set at runtime)
 WORK_DIR_USER=false                # true if --work-dir was provided (skip cleanup)
 MODE="structural"
@@ -136,69 +137,33 @@ run_structural() {
   echo ""
   echo "── Structural Tests ─────────────────────────────────────────────────────────"
 
-  echo ""
-  echo "  [fixture: required files]"
-  assert_file_exists "$FIXTURE_DIR/README.md"          "README.md"
-  assert_file_exists "$FIXTURE_DIR/STATUS.md"          "STATUS.md"
-  assert_file_exists "$FIXTURE_DIR/build.sh"           "build.sh"
-  assert_file_exists "$FIXTURE_DIR/src/greeter.py"     "src/greeter.py"
-  assert_file_exists "$FIXTURE_DIR/tests/test_greeter.py" "tests/test_greeter.py"
+  # ── Test each fixture ─────────────────────────────────────────────────────────
+  for fixture_dir in "$FIXTURES_DIR"/*/; do
+    local fixture_name
+    fixture_name="$(basename "$fixture_dir")"
+    local test_file="$fixture_dir/test.sh"
 
-  echo ""
-  echo "  [fixture: README documents build command]"
-  assert_file_contains "$FIXTURE_DIR/README.md" "./build.sh" \
-    "README.md references build.sh"
+    echo ""
+    echo "  ── fixture: $fixture_name ──"
 
-  echo ""
-  echo "  [fixture: STATUS.md has known issues]"
-  assert_file_contains "$FIXTURE_DIR/STATUS.md" "Known Issues" \
-    "STATUS.md has Known Issues section"
-  assert_file_contains "$FIXTURE_DIR/STATUS.md" "times 0" \
-    "STATUS.md documents --times 0 bug"
+    if [[ ! -f "$test_file" ]]; then
+      fail "$fixture_name: missing test.sh"
+      continue
+    fi
 
-  echo ""
-  echo "  [fixture: planted flaw — Step 1 (README/code mismatch)]"
-  assert_file_contains  "$FIXTURE_DIR/README.md"       "\-\-reverse" \
-    "README documents --reverse flag"
-  assert_file_not_contains "$FIXTURE_DIR/src/greeter.py" '"--reverse"' \
-    "--reverse not implemented in code"
+    # Source the fixture's test definitions (provides run_fixture_structural)
+    FIXTURE_DIR="$fixture_dir"
+    source "$test_file"
 
-  echo ""
-  echo "  [fixture: planted flaw — Step 2 (help text mismatch)]"
-  assert_file_contains "$FIXTURE_DIR/src/greeter.py" 'default=3' \
-    "actual default is 3"
-  assert_file_contains "$FIXTURE_DIR/src/greeter.py" 'default: 1' \
-    "help text claims default is 1"
+    if declare -f run_fixture_structural > /dev/null 2>&1; then
+      run_fixture_structural
+      unset -f run_fixture_structural
+    else
+      fail "$fixture_name: test.sh does not define run_fixture_structural()"
+    fi
+  done
 
-  echo ""
-  echo "  [fixture: planted flaw — Step 3a (no guard on times <= 0)]"
-  assert_file_not_contains "$FIXTURE_DIR/src/greeter.py" \
-    '^\s*(if|elif|while).*times\s*(<=\s*0|<\s*1|==\s*0)|raise.*times|ValueError.*times' \
-    "no guard against times <= 0"
-
-  echo ""
-  echo "  [fixture: planted flaw — Step 3b (silently discarded encode)]"
-  assert_file_contains "$FIXTURE_DIR/src/greeter.py" 'args.name.encode' \
-    "encode() call present (result discarded)"
-
-  echo ""
-  echo "  [fixture: planted flaw — Step 3c (unused import)]"
-  assert_file_contains "$FIXTURE_DIR/src/greeter.py" 'import os' \
-    "unused import os present"
-
-  echo ""
-  echo "  [fixture: planted flaw — Step 3E (adversarial: empty name produces broken output)]"
-  assert_file_not_contains "$FIXTURE_DIR/src/greeter.py" \
-    'if not name|if len\(name\) == 0|if name ==' \
-    "no validation on empty name in build_greeting"
-  assert_file_contains "$FIXTURE_DIR/src/greeter.py" \
-    'f"Hello, \{name\}!"' \
-    "f-string greeting present (breaks on empty name)"
-
-  echo ""
-  echo "  [fixture: build passes (tests are green before dev-loop runs)]"
-  assert_build_passes "$FIXTURE_DIR" "fixture build.sh --no-commit"
-
+  # ── Skill-level tests (not fixture-specific) ─────────────────────────────────
   echo ""
   echo "  [skill: required files]"
   assert_file_exists "$TESTS_DIR/../SKILL.md"                    "SKILL.md"
