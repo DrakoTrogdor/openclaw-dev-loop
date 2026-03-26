@@ -10,7 +10,7 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SKILLS_DIR="/workspace/skills/dev-loop"
+SKILLS_DIR="$(dirname "$REPO_DIR")/skills/dev-loop"
 COMMIT_BODY=""
 NO_COMMIT=false
 
@@ -24,7 +24,7 @@ Options:
   --msg <message>       Commit body appended to the timestamp title
                         e.g. --msg "feat: improve step 3 instructions"
   --skills-dir <path>   Override the target skills directory
-                        (default: /workspace/skills/dev-loop)
+                        (default: <repo-parent>/skills/dev-loop)
   --no-commit           Sync files only; skip git add, commit, and push
   -h, --help            Show this help message
 
