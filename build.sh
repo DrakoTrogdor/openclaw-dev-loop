@@ -62,3 +62,6 @@ else
   git commit -m "$COMMIT_MSG"
   echo "[build] Committed: $COMMIT_MSG"
 fi
+
+git push origin main
+echo "[build] Pushed to origin/main."
