@@ -3,16 +3,19 @@
 #
 # Modes:
 #   structural   Verify the fixture has correct structure and planted flaws are present.
-#                Fully automated, no agent required.
+#                Fully automated, no agent required. Runs against the real fixture (read-only).
 #
-#   integration  (Future) Spawn an agent with the skill + fixture, assert checklist output.
+#   integration  Copies the fixture into a temp directory, runs the agent against the copy,
+#                asserts on DEV-LOOP-CHECKLIST.md output, then cleans up.
+#                The real fixture is never modified.
 #
 # Usage: ./run-tests.sh [--mode structural|integration] [-v]
 
 set -euo pipefail
 
 TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FIXTURE_DIR="$TESTS_DIR/fixture"
+FIXTURE_DIR="$TESTS_DIR/fixture"  # canonical fixture — never modified by tests
+WORK_DIR=""                        # temp copy used by integration tests (set at runtime)
 MODE="structural"
 VERBOSE=false
 PASS=0
@@ -23,15 +26,18 @@ usage() {
 Usage: ./run-tests.sh [options]
 
 Options:
-  --mode <mode>   Test mode: structural (default) or integration
-  -v, --verbose   Show details for passing checks too
-  -h, --help      Show this help
+  --mode <mode>        Test mode: structural (default) or integration
+  --work-dir <path>    Re-use an existing temp fixture dir for integration assertions
+                       (skips setup; useful after an agent has already run)
+  -v, --verbose        Show details for passing checks too
+  -h, --help           Show this help
 EOF
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --mode)      MODE="$2"; shift 2 ;;
+    --work-dir)  WORK_DIR="$2"; shift 2 ;;
     -v|--verbose) VERBOSE=true; shift ;;
     -h|--help)   usage; exit 0 ;;
     *) echo "Unknown argument: $1"; usage; exit 1 ;;
@@ -72,6 +78,31 @@ assert_build_passes() {
     pass "$label"
   else
     fail "$label — build.sh exited non-zero"
+  fi
+}
+
+# ── Temp workspace ────────────────────────────────────────────────────────────
+# Creates an isolated copy of the fixture for agent runs.
+# The real fixture is never touched during integration tests.
+
+setup_work_dir() {
+  if [[ -n "$WORK_DIR" && -d "$WORK_DIR" ]]; then
+    # Re-use an existing temp dir (agent already ran; just assert)
+    echo "$WORK_DIR"
+    return
+  fi
+  WORK_DIR="$(mktemp -d /tmp/dev-loop-test-XXXXXX)"
+  cp -r "$FIXTURE_DIR/." "$WORK_DIR/"
+  # Remove any leftover checklist from a previous run (shouldn't exist in the
+  # canonical fixture, but guard anyway so assertions start clean)
+  rm -f "$WORK_DIR/DEV-LOOP-CHECKLIST.md"
+  echo "$WORK_DIR"
+}
+
+teardown_work_dir() {
+  if [[ -n "$WORK_DIR" && -d "$WORK_DIR" ]]; then
+    rm -rf "$WORK_DIR"
+    WORK_DIR=""
   fi
 }
 
@@ -161,28 +192,81 @@ run_structural() {
     "DEV-LOOP.md references STATUS.md"
 }
 
-# ── Integration tests (stub) ──────────────────────────────────────────────────
+# ── Integration tests ─────────────────────────────────────────────────────────
+# The agent runs against a TEMP COPY of the fixture, not the real fixture.
+# Call setup_work_dir before invoking the agent; teardown_work_dir after assertions.
 
 run_integration() {
   echo ""
   echo "── Integration Tests ────────────────────────────────────────────────────────"
   echo ""
-  echo "  Integration tests require spawning an agent with the skill loaded."
-  echo "  To run manually:"
+
+  local work
+  work="$(setup_work_dir)"
+  echo "  [setup] Temp fixture:  $work"
+  echo "  [setup] Real fixture:  $FIXTURE_DIR (untouched)"
   echo ""
-  echo "    1. Point your agent at: $FIXTURE_DIR"
+
+  # ── Manual instructions (until agent invocation is automated) ────────────────
+  echo "  Integration tests require an agent run. To execute manually:"
+  echo ""
+  echo "    1. Point your agent at the temp fixture: $work"
   echo "    2. Trigger: 'Run the dev loop on this project'"
-  echo "    3. After completion, assert DEV-LOOP-CHECKLIST.md in fixture root contains:"
-  echo "       - '--reverse' (Step 1 finding)"
-  echo "       - 'default' (Step 2 finding)"
-  echo "       - 'times' and '0' or 'guard' (Step 3a finding)"
-  echo "       - 'encode' (Step 3b finding)"
-  echo "       - 'import os' or 'unused' (Step 3c finding)"
-  echo "       - Build: PASS"
+  echo "    3. After the agent finishes, re-run this script with:"
+  echo "         --mode integration --work-dir $work"
+  echo "       to assert against the checklist without recreating the temp dir."
   echo ""
-  echo "  Automated integration tests: TODO"
+  echo "  Expected findings in \$WORK_DIR/DEV-LOOP-CHECKLIST.md:"
+  echo "    Step 1: --reverse flag documented but not implemented"
+  echo "    Step 2: --times help text says 'default: 1' but code defaults to 3"
+  echo "    Step 3: no guard on times <= 0 (infinite loop)"
+  echo "    Step 3: encode() result silently discarded"
+  echo "    Step 3: unused import os"
+  echo "    Step 4: build passes (all 4 pytest tests green)"
   echo ""
-  pass "Integration stub (manual)"
+
+  # ── Assertions (run if WORK_DIR already has a checklist) ─────────────────────
+  if [[ -f "$work/DEV-LOOP-CHECKLIST.md" ]]; then
+    echo "  [found checklist — asserting output]"
+    echo ""
+
+    echo "  [Step 1 findings]"
+    assert_file_contains "$work/DEV-LOOP-CHECKLIST.md" \
+      "reverse" "Checklist mentions --reverse (Step 1)"
+
+    echo "  [Step 2 findings]"
+    assert_file_contains "$work/DEV-LOOP-CHECKLIST.md" \
+      "default" "Checklist mentions default mismatch (Step 2)"
+
+    echo "  [Step 3 findings]"
+    assert_file_contains "$work/DEV-LOOP-CHECKLIST.md" \
+      "times|guard|infinite|<= 0" "Checklist mentions times<=0 guard (Step 3a)"
+    assert_file_contains "$work/DEV-LOOP-CHECKLIST.md" \
+      "encode" "Checklist mentions encode (Step 3b)"
+    assert_file_contains "$work/DEV-LOOP-CHECKLIST.md" \
+      "unused|import os" "Checklist mentions unused import (Step 3c)"
+
+    echo "  [Step 4 build result]"
+    assert_file_contains "$work/DEV-LOOP-CHECKLIST.md" \
+      "[Pp]ass|green|0 failed" "Checklist records passing build (Step 4)"
+
+    echo "  [fixture not destroyed]"
+    assert_file_contains "$FIXTURE_DIR/src/greeter.py" \
+      "import os" "Real fixture still has unused import (untouched)"
+    if [[ ! -f "$FIXTURE_DIR/DEV-LOOP-CHECKLIST.md" ]]; then
+      pass "Real fixture has no checklist (untouched)"
+    else
+      fail "Real fixture was modified — DEV-LOOP-CHECKLIST.md found in $FIXTURE_DIR"
+    fi
+
+    teardown_work_dir
+    echo ""
+    echo "  [teardown] Temp dir cleaned up."
+  else
+    echo "  [skip] No checklist found in temp dir — agent hasn't run yet."
+    echo "         Temp dir preserved at: $work"
+    pass "Integration setup (agent run pending)"
+  fi
 }
 
 # ── Run ───────────────────────────────────────────────────────────────────────
