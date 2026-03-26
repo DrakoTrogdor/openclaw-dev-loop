@@ -198,6 +198,14 @@ Create it in the project root (or clear it if it exists from a prior run). Recor
 
 **Goal:** Find and fix bugs, security gaps, dead code, and logic errors.
 
+### Priority: core logic over tooling
+
+Spend the most time and attention on the project's **core source files** — the code that implements the project's actual purpose. Build scripts, test runners, CI configs, and dev tooling matter, but they are secondary.
+
+A good rule of thumb: if you're spending more time on `Makefile` and `build.sh` than on the application code, you've lost focus. The tooling exists to support the core — not the other way around.
+
+**Review order:** Core source files first, then supporting scripts, then config/tooling. If time or context is limited, deprioritize tooling — it's better to deeply review 5 core files than to shallowly review 5 core files and 10 scripts.
+
 ### Phase A — File-by-file review
 
 Review each source file **individually**, one at a time:

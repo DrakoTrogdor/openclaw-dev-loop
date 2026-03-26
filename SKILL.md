@@ -20,7 +20,8 @@ A repeatable review-and-fix cycle for any codebase. Read `references/DEV-LOOP.md
 - **Target project docs are authoritative.** If `README.md` or `STATUS.md` names a specific script for build/test/deploy/commit, use that script — do not substitute bare toolchain commands. If neither file exists, discover the toolchain from manifests and config files (see the protocol's fallback table).
 - **Verify a clean build first.** Run build + tests before making any changes. If they fail, record pre-existing failures in the checklist so you don't confuse them with issues you introduce.
 - **Never load the entire codebase at once.** Read files as needed per step. For small projects (~10 files), you can be more flexible, but the principle is: only hold what the current step requires.
-- **Step 3 is file-by-file.** Phase A: one file at a time. Phase B: cross-file issues only, 2–3 files at a time. Step 3E: spawn a separate adversarial evaluator agent to find what you missed.
+- **Prioritize core logic over tooling.** Spend the most time on source files that implement the project's actual purpose. Build scripts, test runners, and configs are secondary — don't let them dominate the review.
+- **Step 3 is file-by-file.** Phase A: one file at a time, core source first. Phase B: cross-file issues only, 2–3 files at a time. Step 3E: spawn a separate adversarial evaluator agent to find what you missed.
 - **Checklist discipline.** Each step appends its own section to `DEV-LOOP-CHECKLIST.md`. Never delete or edit sections from prior steps within the same run.
 - **Step 6 is mandatory** — re-sync docs after every code change, even if you think nothing changed.
 - **Update STATUS.md on commit** (if the project maintains one) — remove resolved issues, note anything newly discovered.
