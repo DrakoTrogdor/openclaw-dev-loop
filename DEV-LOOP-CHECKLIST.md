@@ -1,72 +1,43 @@
-# DEV-LOOP-CHECKLIST — Pass 4 (Skill Content Focus)
+# DEV-LOOP-CHECKLIST — Pass 5 (Skill Content Only)
 
-Focus: Improve SKILL.md and references/DEV-LOOP.md as agent-facing instructional documents.
-Do NOT focus on build.sh, run-tests.sh, or other meta tooling unless a skill content change requires it.
+Focus: SKILL.md and references/DEV-LOOP.md ONLY. Do not review or modify build.sh, run-tests.sh, fixtures, or README.md.
 
 ## Project Commands
 - **Build:** `./build.sh --msg "<description>"`
 - **Test:** `./tests/run-tests.sh`
 - **Commit:** `./build.sh --msg "<description>"`
 
-## Skill Content Review
+## Pass 5 — Skill Content Review
 
-### SKILL.md — 8 changes made
+### SKILL.md changes (50 → 28 lines)
 
-1. **[sev:med] Expanded trigger description** — Added "quality pass", "code health check", "code audit", "bug sweep", "codebase review", "lint and fix cycle" to the description. *Why:* A cold-start agent only loads this skill if the description matches the user's request. Missing trigger phrases = missed invocations. The original was too narrow for the variety of ways users ask for code review.
+- [x] **[sev:med]** Description field missing common trigger phrases → Added: "QA this", "fix my code", "go through this repo", "check this project for bugs", "make sure everything is in order". **Why:** These are natural ways users ask for code review; missing them means the skill doesn't trigger when it should.
+- [x] **[sev:med]** Key Rules: 8 rules too many to front-load (agents skim past rule 5) → Consolidated to 5 rules. Removed: "Checklist discipline" (procedural, covered in DEV-LOOP.md), "Step 6 is mandatory" (procedural, covered in DEV-LOOP.md), "Update STATUS.md on commit" (already in DEV-LOOP.md commit section), "Trust boundaries" (already in DEV-LOOP.md). **Why:** Every token in SKILL.md is loaded on every trigger. Procedural details belong in the protocol doc, not the trigger file. 5 numbered rules are scannable; 8 bullet points become a wall.
+- [x] **[sev:med]** Sub-Agent Mode table (~15 lines) duplicated guidance already in DEV-LOOP.md → Moved table to DEV-LOOP.md, replaced with 1-line pointer. **Why:** The table is only needed when actually running sub-agents, not on every skill trigger. Moving it saves ~14 lines of context on every invocation.
 
-2. **[sev:high] Disambiguated "project root" in Quick Start** — Changed "read README.md and STATUS.md in the project root" to "in the target project (the project you're reviewing, not this skill's repo)". *Why:* An agent encountering this skill cold could confuse the dev-loop skill's own README with the target project's README. This was the single most likely cold-start confusion point.
+### DEV-LOOP.md changes (~420 → 387 lines, net after adding sub-agent table)
 
-3. **[sev:med] Clarified Quick Start step numbering** — Rephrased "Work through Steps 1–6" to "Work through the protocol's Steps 1–6" and merged the "write every finding" step into step 4. *Why:* Quick Start had 5 numbered steps that collided with the protocol's 6 numbered steps. An agent could confuse which "Step 3" is being referenced.
+- [x] **[sev:low]** Context Management section was 12 lines of prose → Replaced with a compact table (7 lines). **Why:** A table is faster to scan and more precise than prose paragraphs. Agents can look up what to hold per-step instantly.
+- [x] **[sev:med]** Step 3E "Why this is a separate agent" section (5 lines of motivation) → Removed. **Why:** Motivational text explaining *why* a design decision was made doesn't change agent behavior. Agents need instructions, not persuasion. Dead tokens.
+- [x] **[sev:med]** Step 3E evaluator prompt was ~25 lines with nested sub-lists → Compressed to ~10 lines with 4 bullet categories. **Why:** Overly detailed prompts cause pattern-matching instead of thinking. A punchier prompt gives the evaluator room to reason adversarially rather than checking boxes mechanically.
+- [x] **[sev:low]** Step 3E "What the evaluator typically catches" list (5 items) → Removed. **Why:** This list biases the evaluator toward finding only the listed patterns. It also overlaps with the evaluator prompt itself. Removing it forces genuine adversarial thinking.
+- [x] **[sev:low]** Step 3 "What to check" lists had 30+ items across 6 categories → Compressed to ~20 items across 6 categories. Removed items any competent model checks naturally ("Version/format checks before processing", "No dead or duplicate functions" expanded separately from "unused imports"). Merged related items. **Why:** Shorter checklists get more attention per item. Items like "clean build with no warnings" and "no dead code, unused imports, or unresolved TODO/FIXME/HACK" can be single lines.
+- [x] **[sev:low]** Step 1 verification table had 10 rows → Compressed to 7 rows by merging CLI/API surface, merging build/test instructions, removing Dependencies row (agents check manifests naturally). **Why:** Fewer rows = each row gets more attention.
+- [x] **[sev:low]** Step 2 "What to check" had 4 items including "Generated docs (man pages, docstrings, OpenAPI descriptions)" → Compressed to 3 items. **Why:** "Generated docs" is too vague to be actionable and overlaps with Step 1's API surface check.
+- [x] **[sev:low]** Step 4 had separate "Use the commands" sub-header and 5-item check list → Compressed to 3 lines. **Why:** Step 4 is mechanically simple (run commands, check output). It doesn't need its own sub-sections.
+- [x] **[sev:low]** Step 6 had verbose preamble and separate pass/fail section → Compressed. **Why:** Tighter language, same information.
+- [x] **[sev:low]** "Before You Start" §3 had 4 lines of bullet points → Compressed to 2 sentences. **Why:** Redundant with §1 which already covers wrapper scripts.
+- [x] **[sev:low]** Step 3E "When to use" had 3 bullets with caveats → Compressed to 2 bullets. **Why:** "but note that subtle bugs exist even in small code" is hedging that doesn't change behavior.
+- [x] **[sev:med]** Sub-Agent Dispatch Table added from SKILL.md → Placed in Overview section with proper heading. **Why:** This is reference material needed only during execution, not during skill triggering. DEV-LOOP.md is the right home.
 
-4. **[sev:med] Added "verify clean build first" key rule** — New rule telling agents to build before making changes. *Why:* Without a baseline, agents can't distinguish pre-existing failures from failures they introduced. This was completely missing from SKILL.md's key rules.
+### Decisions NOT to change
 
-5. **[sev:med] Added missing-docs fallback guidance** — Added: "If neither file exists, discover the toolchain from manifests and config files." *Why:* Many real projects don't have README.md or STATUS.md. The original gave agents zero guidance for this common case.
-
-6. **[sev:med] Surfaced checklist discipline rule** — Added: "Each step appends its own section. Never delete or edit sections from prior steps." *Why:* This critical rule was buried in DEV-LOOP.md but not surfaced in SKILL.md. An agent that only skims SKILL.md's key rules might violate this.
-
-7. **[sev:med] Replaced vague Sub-Agent Mode with concrete table** — Replaced 4 bullet points with a table mapping each sub-agent to its scope and what the orchestrator passes it. Added size threshold (>20 source files). *Why:* The original was too vague — "spawn one sub-agent per step" without specifying what context each needs. An agent would wing it and either pass too much (flooding context) or too little (sub-agent can't do its job).
-
-8. **[sev:low] Removed "References" section** — Deleted the single-line "References" section pointing to DEV-LOOP.md. *Why:* The agent just read this file because it was triggered. The first line of the Quick Start already says "Read references/DEV-LOOP.md". The References section was dead tokens.
-
-### DEV-LOOP.md — 10 changes made
-
-1. **[sev:high] Added baseline build step (Before You Start §5)** — New step: run build+tests before making changes, record result. *Why:* Without this, the Step 4-5 exit gate ("all tests green") is meaningless if tests were already failing. Agents were also unable to distinguish pre-existing failures from regressions they introduced.
-
-2. **[sev:med] Updated overview ASCII diagram** — Added "(read docs, map project, baseline build)" to DISCOVER phase. *Why:* The diagram is the first thing an agent sees — it should accurately reflect the workflow including the new baseline step.
-
-3. **[sev:med] Added severity to checklist format** — Added `[sev:high|med|low]` tags and a severity guide. *Why:* Without severity, the orchestrator has no way to prioritize findings or make gating decisions. "3 findings" is meaningless without knowing if they're crashes or cosmetic.
-
-4. **[sev:med] Added missing-docs fallback to Before You Start §1** — Added explicit guidance for when README/STATUS don't exist. *Why:* Silent confusion point. An agent finding no README would either stall or skip the step entirely. Now it knows to proceed with toolchain discovery and flag the absence.
-
-5. **[sev:high] Added 5 missing check categories to Step 3** — Added: "Return values actually used" (catches silently discarded results like encode()), "zero/negative numeric args" (catches --times 0), integer overflow/underflow, type coercion, full Error Handling section (4 items), Concurrency & State section (4 items), off-by-one clarification, temp file cleanup. *Why:* The original Step 3 checklist had blind spots for exactly the categories of bugs planted in the fixtures. Specifically: "Return values actually used" directly targets F3b (encode() discarded). "zero/negative numeric args" directly targets F3a (times ≤ 0). The error handling section addresses real-world error swallowing. Concurrency is a major real-world bug category that was completely absent.
-
-6. **[sev:high] Restructured 3E evaluator prompt** — Reorganized from flat list to categorized sections (edge-case inputs, silent failures, cross-function contracts, compositional bugs, habitual oversights). Added "focus on what they MISSED, not re-reporting." Added output quality check. *Why:* The flat list was 13 questions that all sounded similar. Categorization helps the evaluator think systematically. The "process" instruction prevents the evaluator from wasting tokens re-reporting Step 3's existing findings. The "output quality" check specifically targets F3E-type flaws (grammatically broken output).
-
-7. **[sev:med] Expanded Phase B cross-file issue examples** — Added 5 concrete example categories of cross-file issues. *Why:* The original was one vague sentence. An agent doing Phase B needs to know what patterns to look for. The "data transformation disagreements" example directly describes the openclaw-skill F3E flaw (tag case mismatch).
-
-8. **[sev:low] Made context management flexible for small projects** — Added: "For projects under ~10 source files, you can be more flexible." *Why:* The strict "one file at a time" rule is counterproductive for tiny projects where seeing 3 files together would help spot cross-file issues. The rule should scale with project size.
-
-9. **[sev:med] Added baseline comparison to Step 4** — Added "Compare against baseline" to the what-to-check list and updated the goal statement. *Why:* Connects the new baseline step to the build verification step, closing the loop.
-
-10. **[sev:low] Updated reporting template** — Added baseline line and severity counts. *Why:* Aligns the summary format with the new severity tags and baseline tracking.
+- **Step 1 vs Step 2 separation:** Kept separate. Step 1 edits docs to match code; Step 2 edits code strings to match behavior. Different edit targets = different steps. Merging would create confusion about which direction edits flow.
+- **Flow diagram:** Kept. It's compact (~6 lines) and provides instant orientation for the full protocol. Worth its tokens.
+- **Checklist format:** Kept as-is. The `[x]/[ ]` + `[sev:X]` format is close enough to what agents naturally produce. Fighting it would waste more tokens than the format itself.
+- **No concrete examples added:** Good findings vs bad findings examples would anchor agents to that specific pattern. Better to let them reason from the category lists.
+- **Cross-file issues list in Phase B:** Kept the 5-item list. These are genuinely non-obvious (especially data transformation disagreements) and worth the tokens.
 
 ### Test Results
-
-All 71 structural tests pass after edits. No fixture modifications were made.
-
-### Analysis: Would these changes catch the planted flaws better?
-
-| Flaw | Previous coverage | Improvement |
-|------|------------------|-------------|
-| F3b (discarded encode) | Implicit in "Decode/parse errors surfaced" — indirect | Now explicit: "Return values actually used — is any function called for a side effect but its result silently discarded?" |
-| F3a (times ≤ 0) | Implicit in "Edge cases covered" — vague | Now explicit: "zero/negative numeric args" |
-| F3E (empty name output) | Evaluator prompt asked about empty input but buried in flat list | Now categorized under "Edge-case inputs" with explicit "empty string" check, plus "output quality" check under habitual oversights |
-| F3E-openclaw (tag case) | Evaluator prompt had the example but Phase B lacked it | Phase B now explicitly lists "data transformation disagreements" as a cross-file pattern |
-| F3E-rust (line boundaries) | Evaluator prompt asked about edge cases generally | Evaluator "compositional bugs" category now asks about correct-looking components that interact incorrectly |
-
-### What was NOT changed (and why)
-
-- **Step ordering (1→2→3→3E→4→5→6):** The current order is correct. Docs sync before code review lets the agent understand intent before reading code. Building after review (not before review) is fine because the new baseline step catches pre-existing failures.
-- **Step 1/2 content:** Already thorough. The verification categories in Step 1 are comprehensive.
-- **Test fixtures:** Not touched — they are test cases, not the skill itself.
-- **build.sh / run-tests.sh:** Out of scope for this skill content review pass.
+- All 71 structural tests pass (0 failures)
+- No files outside SKILL.md and DEV-LOOP.md were modified

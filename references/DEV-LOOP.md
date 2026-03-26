@@ -24,6 +24,21 @@ The loop runs in two modes:
 
 Either way, every agent writes findings to the shared checklist. The orchestrator reads it between steps to decide whether to proceed or loop back.
 
+### Sub-Agent Dispatch Table
+
+For large codebases (>20 source files or multi-module projects), use this table to split work:
+
+| Sub-agent | Scope | Gets from orchestrator |
+|-----------|-------|----------------------|
+| Steps 1–2 | Docs sync | Checklist header (commands), doc files + source files one at a time |
+| Step 3A | File-by-file review | Checklist header, one source file at a time |
+| Step 3B | Cross-file issues | Checklist header, logged cross-file issues from 3A, 2–3 files per group |
+| Step 3E | Adversarial eval | Checklist (all prior sections), all source files, read-only access |
+| Steps 4–5 | Build & fix | Checklist header (commands), build/test output, failing source files |
+| Step 6 | Re-sync docs | Checklist header, list of files modified in Steps 3–5, doc files |
+
+Each sub-agent appends its findings to `DEV-LOOP-CHECKLIST.md` before reporting done. Pass the recorded commands from the checklist header to each sub-agent so they don't re-derive them.
+
 ---
 
 ## Shared Checklist
@@ -54,17 +69,18 @@ This is the single source of truth for what was found, what was fixed, and what'
 
 ## Context Management
 
-Context discipline is non-negotiable. A flooded context window causes exactly the failure modes this loop is designed to catch.
+Never load the entire codebase at once. Read files as needed per step; move on when done. Small projects (~10 files) can be more flexible.
 
-- **Default: never load the entire codebase at once.** Read files as needed; move on when done.
-- **Small projects (~10 source files or fewer):** You can be more flexible — holding several files in context simultaneously is fine if it helps you spot cross-file issues. The rule targets codebases where loading everything would degrade review quality.
-- **Steps 1–2:** Read docs + one source file at a time. Don't hold multiple source files simultaneously (unless the project is small enough that this is impractical).
-- **Step 3:** Has its own per-file protocol — see below.
-- **Step 4:** Only needs build/test output, not source files.
-- **Step 5:** Needs build/test output + the source files that caused failures.
-- **Step 6:** Re-read only the docs + the files modified in Steps 3–5.
+| Step | What to hold in context |
+|------|------------------------|
+| 1–2 | Docs + one source file at a time |
+| 3A | One source file at a time |
+| 3B | 2–3 related files per cross-file issue |
+| 4 | Build/test output only |
+| 5 | Build output + failing source files |
+| 6 | Docs + files modified in Steps 3–5 |
 
-In sub-agent mode, each agent gets a narrow file scope. The orchestrator passes only what that step needs — never the full tree.
+In sub-agent mode, the orchestrator passes only what each step needs.
 
 ---
 
@@ -99,11 +115,7 @@ List all source files, config manifests (`package.json`, `pyproject.toml`, `Carg
 
 ### 3. Confirm or fill in the toolchain
 
-If README/STATUS didn't document the build/test/deploy commands fully, identify them now:
-
-- Check for project-specific scripts (`build.sh`, `Makefile`, `justfile`, `scripts/`)
-- If a wrapper script exists, **use it exclusively** — it may handle deploy steps, service restarts, asset generation, or sequencing that raw toolchain commands won't
-- Only fall back to the toolchain directly if no wrapper exists
+If README/STATUS didn't fully document build/test/deploy commands, check for wrapper scripts (`build.sh`, `Makefile`, `justfile`, `scripts/`). If one exists, **use it exclusively**. Only fall back to raw toolchain commands if no wrapper exists.
 
 ### Common toolchain fallback reference
 
@@ -159,16 +171,13 @@ Create it in the project root (or clear it if it exists from a prior run). Recor
 
 | Category | What to verify |
 |----------|---------------|
-| CLI interface | Flags, arguments, subcommands, defaults — match actual definitions? |
-| API surface | Exported functions, types, endpoints — documented accurately? |
-| Output format | JSON fields, serialization, optional fields, conditions for presence/absence |
+| CLI/API surface | Flags, arguments, subcommands, defaults, exported functions — match actual code? |
+| Output format | JSON fields, serialization, optional fields — docs match actual output? |
 | Constants & limits | Size limits, timeouts, buffer sizes — numbers in docs match code? |
-| Dependencies | Listed deps match actual imports and manifest (versions, names, install commands)? |
-| Security claims | Anything stated about encryption, permissions, validation — actually true? |
 | Feature list | No stale features listed; no implemented features missing from docs |
-| Build instructions | Correct toolchain, required system libs, editions/versions |
-| Test instructions | Correct commands, required tools, expected output |
-| Structured metadata | YAML/TOML/JSON frontmatter, config files — parseable? Values with special characters (colons, quotes) properly quoted? |
+| Security claims | Stated encryption, permissions, validation — actually true in code? |
+| Build/test instructions | Correct commands, required tools, editions/versions? |
+| Structured metadata | YAML/TOML/JSON frontmatter parseable? Special characters properly quoted? |
 
 **Rule:** Edit docs to match code. Do not change code to match docs in this step.
 
@@ -183,10 +192,9 @@ Create it in the project root (or clear it if it exists from a prior run). Recor
 **Goal:** Every user-visible string accurately describes what the code actually does.
 
 **What to check:**
-- `--help` output for every command and subcommand
-- Error messages — accurate, actionable, not misleading?
-- Inline doc comments on public APIs and exported types
-- Generated docs (man pages, docstrings, OpenAPI descriptions)
+- `--help` output for every command — flags, defaults, descriptions match behavior?
+- Error messages accurate and actionable?
+- Doc comments on public APIs match actual signatures and behavior?
 
 **Rule:** Edit source strings to match behavior. Do not change logic in this step.
 
@@ -233,46 +241,34 @@ For each cross-file issue: load only the 2–3 relevant files together and fix a
 ### What to check
 
 #### Security
-- Sensitive data (keys, passwords, tokens) cleared from memory after use?
-- File permissions restrictive where needed? No TOCTOU race between create and chmod?
-- Input validation — untrusted data checked before use?
-- No hardcoded secrets; no logging of sensitive values?
+- Input validation on untrusted data before use
+- No hardcoded secrets; no logging of sensitive values
+- Sensitive data cleared after use; file permissions restrictive (no TOCTOU gaps)
 
 #### Resource management
-- File handles, connections, and descriptors closed on all paths (success and error)?
-- Bounded reads — stdin/network reads have size limits?
-- No unbounded allocations from untrusted input?
-- Temp files cleaned up on all exit paths (including error/signal)?
+- File handles, connections, temp files closed/cleaned on all paths (success and error)
+- Bounded reads from stdin/network — no unbounded allocations from untrusted input
 
 #### Correctness
-- Lengths, sizes, and indices validated before use? (Off-by-one: `<` vs `<=`, 0-based vs 1-based)
-- Version/format checks before processing?
-- Decode/parse errors surfaced with context, not silently swallowed?
-- Return values actually used — is any function called for a side effect but its result silently discarded? (e.g., `string.encode()` called but return value not assigned or checked)
-- Strict parsing where appropriate (reject unknown fields, trailing data)?
-- Edge cases covered: empty input, zero/negative numeric args, max-size input, unicode, null bytes?
-- Regex/pattern injection: is user input or variable data passed to `grep`, `sed`, `[[ =~ ]]`, or other regex engines without escaping metacharacters (`.`, `*`, `?`, `+`, `|`, `(`, etc.)? Unescaped variables in patterns can silently match or delete unrelated data.
-- Integer overflow/underflow for arithmetic on untrusted input?
-- Type coercion: implicit conversions that lose precision or change semantics (e.g., float→int truncation, string→number in JS, lossy encoding)?
+- Return values actually used — not silently discarded (e.g., `encode()` called but result never assigned)
+- Edge cases: empty input, zero/negative args, max-size input, unicode, null bytes
+- Off-by-one errors (`<` vs `<=`, 0-based vs 1-based)
+- Regex/pattern injection: user input passed to `grep`, `sed`, `[[ =~ ]]` without escaping metacharacters?
+- Type coercion that loses precision or changes semantics
+- Decode/parse errors surfaced with context, not silently swallowed
 
 #### Error handling
-- Are errors propagated with enough context to diagnose the problem? (Not just "error occurred" — which file? which input? what was expected?)
-- Are any errors silently caught and ignored (empty `except:`, `catch {}`, `|| true`)?
-- Do error paths clean up resources (close files, release locks, remove temp files)?
-- Are error types consistent within a module? (Don't mix panics, Result, and bare strings for the same category of failure)
+- Errors propagated with enough context (which file? which input? what was expected?)
+- No silently caught/ignored errors (empty `except:`, `catch {}`, `|| true`)
+- Error paths clean up resources; error types consistent within a module
 
 #### Concurrency & state (if applicable)
-- Shared mutable state protected by appropriate synchronization?
-- No data races on concurrent access to files, databases, or shared memory?
-- Lock ordering consistent (no deadlock risk from acquiring locks in different orders)?
-- Global/module-level mutable state — is initialization order guaranteed?
+- Shared mutable state properly synchronized; no data races
+- Lock ordering consistent; global mutable state initialization order guaranteed
 
 #### Code quality
-- No dead or duplicate functions
-- No unused imports or variables
-- Clean build with no warnings (per toolchain: `cargo clippy`, `go vet`, `npm run lint`, etc.)
-- Error messages are clear and actionable
-- No unresolved TODO/FIXME/HACK comments
+- No dead code, unused imports, or unresolved TODO/FIXME/HACK
+- Clean build with no warnings
 
 **Rule:** Fix the code. For each fix, state: *what was wrong → what changed → why.*
 
@@ -284,46 +280,22 @@ For each cross-file issue: load only the 2–3 relevant files together and fix a
 
 After Step 3 Phases A and B, spawn a **separate evaluator agent**. This agent did not write or review the code. Its only job is to find what the generator missed.
 
-### Why this is a separate agent
-
-The same agent that wrote or reviewed code is biased toward approving it. Anthropic found that agents "identified legitimate issues, then talked themselves into deciding they weren't a big deal and approved the work anyway." A dedicated skeptic with no attachment to the work finds different things. Tuning a standalone evaluator to be skeptical is far more tractable than making a generator critical of its own work.
-
 ### Evaluator system prompt
 
 The evaluator agent should receive a system prompt like:
 
-> You are a skeptical code reviewer. You did not write this code. You have no attachment to it. Your only job is to find problems the previous reviewer missed.
+> You are a skeptical code reviewer. You did not write this code. Your job: find problems the previous reviewer missed.
 >
-> **Process:** Read the source files and the DEV-LOOP-CHECKLIST.md (which shows what the previous reviewer already found and fixed). Focus on what they MISSED, not on re-reporting what they already caught.
+> Read the source files and DEV-LOOP-CHECKLIST.md (what was already found). Focus on what they MISSED.
 >
-> **For each source file, systematically ask:**
+> For each source file, try to break it:
+> - **Edge cases:** empty input, zero, negative, null, max values, unicode, single-element collections. What input would a malicious user craft?
+> - **Silent failures:** return values discarded? Errors swallowed? Logic paths that produce wrong output without raising errors?
+> - **Cross-function contracts:** do producer and consumer agree on format, case, encoding, units? Do they look correct in isolation but fail when composed?
+> - **Output quality:** does user-facing output make sense for ALL valid inputs, not just the common case?
 >
-> *Edge-case inputs:*
-> - What happens with empty string input? Zero? Negative numbers? Null/None/nil?
-> - What happens at boundary values (max int, empty collections, single-element collections)?
-> - What input would a malicious user craft to break this?
->
-> *Silent failures:*
-> - Is any return value silently discarded? (A function is called, it returns something, and the caller ignores it — this often means the call's purpose is defeated)
-> - Is any error silently swallowed (empty catch/except, `|| true`, ignored Result)?
-> - Are there logic paths that produce wrong or misleading output without raising an error?
->
-> *Cross-function contracts:*
-> - Do functions that produce and consume the same data agree on its format (case, encoding, delimiters, quoting)? Example: function A lowercases tags before storing, but function B searches with the original case — they look correct in isolation but fail when composed.
-> - Do caller and callee agree on units, ranges, and semantics of shared parameters?
->
-> *Compositional bugs:*
-> - Does the code work correctly when individual correct-looking components interact? (Each function passes its own unit test but the pipeline produces wrong output)
-> - Are there ordering assumptions between operations that aren't enforced?
->
-> *Things reviewers habitually overlook:*
-> - User-facing output quality: does the output make grammatical/semantic sense for ALL valid inputs, not just the common case?
-> - Unused imports, variables, or dead code the reviewer may have noticed but dismissed
-> - TODO/FIXME/HACK comments indicating incomplete work
-> - Build/lint warnings that were present but not addressed
->
-> Do NOT fix anything. Only report findings. Be specific: file, line, what's wrong, why it matters.
-> If you find nothing, say so — but look hard before you say that.
+> Do NOT fix anything. Report only: file, line, what's wrong, why it matters.
+> If you find nothing, say so — but look hard first.
 
 ### Evaluator procedure
 
@@ -337,37 +309,18 @@ The evaluator agent should receive a system prompt like:
 
 ### When to use
 
-- **Always recommended** for codebases with more than a handful of files
-- **Required** when the project's README or STATUS requests adversarial evaluation
-- **Skip only** for trivially small codebases where the overhead isn't justified — but note that subtle bugs exist even in small code
-
-### What the evaluator typically catches that the generator misses
-
-- Logic that looks correct but produces wrong output on edge-case input
-- Silently discarded return values (the code "works" but isn't doing what it claims)
-- Validation that exists but doesn't actually protect against the stated threat
-- Grammatically or semantically broken output that only surfaces with specific input combinations
-- Assumptions about input that are never checked (empty strings, negative numbers, unicode)
+- **Always recommended** unless the codebase is trivially small
+- **Required** when README or STATUS requests adversarial evaluation
 
 ---
 
 ## STEP 4 — Build & Test
 
-### Use the commands from the checklist
+Use the build/test commands recorded in `DEV-LOOP-CHECKLIST.md`. If the script auto-commits, use its `--no-commit` flag — the loop controls when to commit.
 
-The build/test commands were recorded in `DEV-LOOP-CHECKLIST.md` during *Before You Start*. Use those — don't re-derive them. If the checklist entry is missing, go back and fill it in before proceeding.
+**Check:** Non-zero exit codes, test failures, meaningful warnings, silently failing deploy steps. Compare against baseline — distinguish pre-existing failures from new ones.
 
-Run the build command. If the script auto-commits, use its `--no-commit` equivalent (or equivalent flag) — the loop controls when to commit.
-
-### What to check
-
-- Non-zero exit codes from any build or test step
-- Test failures — note which tests failed and why
-- Warnings from the build or lint step that indicate real issues
-- Any deploy/asset/service steps that silently fail
-- **Compare against baseline:** If the baseline build (from *Before You Start* §5) had pre-existing failures, distinguish those from new failures introduced by your changes
-
-**Goal:** Build exits 0, all tests pass, no meaningful warnings. If the baseline had pre-existing failures, your changes must not make them worse — and ideally should fix them.
+**Goal:** Build exits 0, all tests pass, no meaningful warnings.
 
 **Append results to `DEV-LOOP-CHECKLIST.md` under `## Step 4`.**
 
@@ -390,18 +343,16 @@ Repeat until build and tests are fully green. **Do not declare done until they p
 
 ## STEP 6 — Re-sync Docs & Help Text
 
-Code changes in Steps 3–5 may have introduced new flags, changed defaults, altered behavior, or fixed output formats. The docs and help text must catch up.
+Code changes in Steps 3–5 may have introduced new flags, changed defaults, or altered behavior. Docs and help text must catch up.
 
-1. Re-run **Step 1** — check docs against the modified code only (not the full codebase again)
-2. Re-run **Step 2** — check help strings and error messages against modified code
-
-Only re-read files modified in Steps 3–5, plus the docs. Do not reload the entire codebase.
+1. Re-run **Step 1** checks against modified code only (not the full codebase)
+2. Re-run **Step 2** checks against modified code only
 
 **This step is mandatory even if you think nothing changed. Verify; don't assume.**
 
-**Re-run 3E guidance:** If code changes in Steps 3–5 were substantial (new logic paths, changed validation, altered control flow), consider re-running the Step 3E adversarial evaluation against the updated code. Use judgment — trivial fixes (typos, message rewording) don't warrant a re-run; structural changes do.
+**Re-run 3E:** If Steps 3–5 made structural changes (new logic paths, changed validation, altered control flow), re-run the adversarial evaluation. Trivial fixes don't warrant a re-run.
 
-**Pass/fail criteria:** Step 6 passes if (a) no doc/help mismatches were found, or (b) all found mismatches were fixed and verified. If mismatches remain unfixed, Step 6 is not green.
+**Pass/fail:** All doc/help mismatches found must be fixed. If any remain, Step 6 is not green.
 
 **Append findings to `DEV-LOOP-CHECKLIST.md` under `## Step 6`.**
 
