@@ -1,43 +1,45 @@
-# DEV-LOOP-CHECKLIST — Pass 5 (Skill Content Only)
+# DEV-LOOP-CHECKLIST — Pass 6 (README Rewrite)
 
-Focus: SKILL.md and references/DEV-LOOP.md ONLY. Do not review or modify build.sh, run-tests.sh, fixtures, or README.md.
+Focus: README.md only. Rewritten to be accurate against SKILL.md and DEV-LOOP.md after Passes 4-5.
 
 ## Project Commands
 - **Build:** `./build.sh --msg "<description>"`
 - **Test:** `./tests/run-tests.sh`
 - **Commit:** `./build.sh --msg "<description>"`
 
-## Pass 5 — Skill Content Review
+## Pass 6 — README.md Rewrite
 
-### SKILL.md changes (50 → 28 lines)
+### What changed
 
-- [x] **[sev:med]** Description field missing common trigger phrases → Added: "QA this", "fix my code", "go through this repo", "check this project for bugs", "make sure everything is in order". **Why:** These are natural ways users ask for code review; missing them means the skill doesn't trigger when it should.
-- [x] **[sev:med]** Key Rules: 8 rules too many to front-load (agents skim past rule 5) → Consolidated to 5 rules. Removed: "Checklist discipline" (procedural, covered in DEV-LOOP.md), "Step 6 is mandatory" (procedural, covered in DEV-LOOP.md), "Update STATUS.md on commit" (already in DEV-LOOP.md commit section), "Trust boundaries" (already in DEV-LOOP.md). **Why:** Every token in SKILL.md is loaded on every trigger. Procedural details belong in the protocol doc, not the trigger file. 5 numbered rules are scannable; 8 bullet points become a wall.
-- [x] **[sev:med]** Sub-Agent Mode table (~15 lines) duplicated guidance already in DEV-LOOP.md → Moved table to DEV-LOOP.md, replaced with 1-line pointer. **Why:** The table is only needed when actually running sub-agents, not on every skill trigger. Moving it saves ~14 lines of context on every invocation.
+1. **Project structure tree updated.** Added `DEV-LOOP-CHECKLIST.md` (was missing from tree). Consolidated fixture file listings to be more compact (e.g. `README.md, STATUS.md, build.sh, test.sh` on one line). Removed redundant description arrows where file names are self-explanatory.
 
-### DEV-LOOP.md changes (~420 → 387 lines, net after adding sub-agent table)
+2. **"What lives where" table updated.** SKILL.md description now says "5 key rules" (was unspecified). DEV-LOOP.md description now mentions "sub-agent dispatch table, checklist format, evaluator prompt" — reflecting that the dispatch table moved from SKILL.md to DEV-LOOP.md in Pass 5.
 
-- [x] **[sev:low]** Context Management section was 12 lines of prose → Replaced with a compact table (7 lines). **Why:** A table is faster to scan and more precise than prose paragraphs. Agents can look up what to hold per-step instantly.
-- [x] **[sev:med]** Step 3E "Why this is a separate agent" section (5 lines of motivation) → Removed. **Why:** Motivational text explaining *why* a design decision was made doesn't change agent behavior. Agents need instructions, not persuasion. Dead tokens.
-- [x] **[sev:med]** Step 3E evaluator prompt was ~25 lines with nested sub-lists → Compressed to ~10 lines with 4 bullet categories. **Why:** Overly detailed prompts cause pattern-matching instead of thinking. A punchier prompt gives the evaluator room to reason adversarially rather than checking boxes mechanically.
-- [x] **[sev:low]** Step 3E "What the evaluator typically catches" list (5 items) → Removed. **Why:** This list biases the evaluator toward finding only the listed patterns. It also overlaps with the evaluator prompt itself. Removing it forces genuine adversarial thinking.
-- [x] **[sev:low]** Step 3 "What to check" lists had 30+ items across 6 categories → Compressed to ~20 items across 6 categories. Removed items any competent model checks naturally ("Version/format checks before processing", "No dead or duplicate functions" expanded separately from "unused imports"). Merged related items. **Why:** Shorter checklists get more attention per item. Items like "clean build with no warnings" and "no dead code, unused imports, or unresolved TODO/FIXME/HACK" can be single lines.
-- [x] **[sev:low]** Step 1 verification table had 10 rows → Compressed to 7 rows by merging CLI/API surface, merging build/test instructions, removing Dependencies row (agents check manifests naturally). **Why:** Fewer rows = each row gets more attention.
-- [x] **[sev:low]** Step 2 "What to check" had 4 items including "Generated docs (man pages, docstrings, OpenAPI descriptions)" → Compressed to 3 items. **Why:** "Generated docs" is too vague to be actionable and overlaps with Step 1's API surface check.
-- [x] **[sev:low]** Step 4 had separate "Use the commands" sub-header and 5-item check list → Compressed to 3 lines. **Why:** Step 4 is mechanically simple (run commands, check output). It doesn't need its own sub-sections.
-- [x] **[sev:low]** Step 6 had verbose preamble and separate pass/fail section → Compressed. **Why:** Tighter language, same information.
-- [x] **[sev:low]** "Before You Start" §3 had 4 lines of bullet points → Compressed to 2 sentences. **Why:** Redundant with §1 which already covers wrapper scripts.
-- [x] **[sev:low]** Step 3E "When to use" had 3 bullets with caveats → Compressed to 2 bullets. **Why:** "but note that subtle bugs exist even in small code" is hedging that doesn't change behavior.
-- [x] **[sev:med]** Sub-Agent Dispatch Table added from SKILL.md → Placed in Overview section with proper heading. **Why:** This is reference material needed only during execution, not during skill triggering. DEV-LOOP.md is the right home.
+3. **Step table updated.** Added details to each step that were missing: "Before You Start" now mentions baseline build and creating the checklist. Step 3 now explicitly lists "Phase A" and "Phase B" and the priority rule (core source files first, tooling second). Steps 1 and 2 now clarify which direction edits flow (docs→match code vs source strings→match behavior).
 
-### Decisions NOT to change
+4. **Key Rules section added.** The 5 numbered rules from SKILL.md are now explicitly listed in the README. The old README had a "Key Design Principles" section at the bottom that covered some of these but not all, and didn't match the consolidated rule set from Pass 5.
 
-- **Step 1 vs Step 2 separation:** Kept separate. Step 1 edits docs to match code; Step 2 edits code strings to match behavior. Different edit targets = different steps. Merging would create confusion about which direction edits flow.
-- **Flow diagram:** Kept. It's compact (~6 lines) and provides instant orientation for the full protocol. Worth its tokens.
-- **Checklist format:** Kept as-is. The `[x]/[ ]` + `[sev:X]` format is close enough to what agents naturally produce. Fighting it would waste more tokens than the format itself.
-- **No concrete examples added:** Good findings vs bad findings examples would anchor agents to that specific pattern. Better to let them reason from the category lists.
-- **Cross-file issues list in Phase B:** Kept the 5-item list. These are genuinely non-obvious (especially data transformation disagreements) and worth the tokens.
+5. **Trigger phrases documented.** The "What the Skill Does" section now lists example trigger phrases from SKILL.md's description field ("QA this", "fix my code", "check this project for bugs", etc.) — these were added in Pass 5 but the README didn't reflect them.
+
+6. **Sub-Agent Mode section compressed.** Now a 2-line section pointing to DEV-LOOP.md instead of duplicating guidance. Matches SKILL.md's 1-line pointer approach from Pass 5.
+
+7. **Self-improvement section restructured.** Added a "What to improve and what NOT to improve" table making it explicit that SKILL.md and DEV-LOOP.md are the primary improvement targets, not build.sh/run-tests.sh/fixtures. Separated "Adding a new fixture" from "Adding a flaw to an existing fixture" for clarity.
+
+8. **Design Principles section trimmed.** Removed the Anthropic citation link from the context discipline bullet (redundant with the Background section). Removed "Harness design" explanation — it's self-evident from the bullet text. Tighter language throughout.
+
+9. **Planted flaws tables verified.** All 3 fixtures × 6 flaws = 18 total flaws verified against actual source code, test.sh assertions, and run-tests.sh integration assertions. All table entries are accurate. No changes needed.
+
+10. **Build/test/commit section verified.** All commands, auto-detection logic, and pipeline steps verified against actual build.sh code. No changes needed to the substance; minor wording tightened.
+
+### What did NOT change
+
+- **SKILL.md** — not modified (authoritative source)
+- **references/DEV-LOOP.md** — not modified (authoritative source)
+- **build.sh** — not modified
+- **tests/run-tests.sh** — not modified
+- **tests/fixtures/** — not modified (any of them)
+- **Planted flaws tables** — content unchanged, verified accurate
 
 ### Test Results
 - All 71 structural tests pass (0 failures)
-- No files outside SKILL.md and DEV-LOOP.md were modified
+- No files outside README.md and DEV-LOOP-CHECKLIST.md were modified
