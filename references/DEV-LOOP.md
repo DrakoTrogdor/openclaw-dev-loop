@@ -51,7 +51,8 @@ Context discipline is non-negotiable. A flooded context window causes exactly th
 - **Never load the entire codebase at once.** Read files as needed; move on when done.
 - **Steps 1–2:** Read docs + one source file at a time. Don't hold multiple source files simultaneously.
 - **Step 3:** Has its own per-file protocol — see below.
-- **Steps 4–5:** Only need build/test output, not source files.
+- **Step 4:** Only needs build/test output, not source files.
+- **Step 5:** Needs build/test output + the source files that caused failures.
 - **Step 6:** Re-read only the docs + the files modified in Steps 3–5.
 
 In sub-agent mode, each agent gets a narrow file scope. The orchestrator passes only what that step needs — never the full tree.
@@ -220,6 +221,58 @@ For each cross-file issue: load only the 2–3 relevant files together and fix a
 
 ---
 
+## STEP 3E — Adversarial Evaluation
+
+After Step 3 Phases A and B, spawn a **separate evaluator agent**. This agent did not write or review the code. Its only job is to find what the generator missed.
+
+### Why this is a separate agent
+
+The same agent that wrote or reviewed code is biased toward approving it. Anthropic found that agents "identified legitimate issues, then talked themselves into deciding they weren't a big deal and approved the work anyway." A dedicated skeptic with no attachment to the work finds different things. Tuning a standalone evaluator to be skeptical is far more tractable than making a generator critical of its own work.
+
+### Evaluator system prompt
+
+The evaluator agent should receive a system prompt like:
+
+> You are a skeptical code reviewer. You did not write this code. You have no attachment to it. Your only job is to find problems the previous reviewer missed.
+>
+> Read the source files and the DEV-LOOP-CHECKLIST.md. For each file, ask:
+> - What did the reviewer approve that is actually wrong?
+> - What assumptions does this code make that aren't validated?
+> - What happens with empty input, null input, negative values, concurrent access?
+> - What edge cases were not considered?
+> - What looks correct at first read but breaks under adversarial or unexpected input?
+> - Is any error silently swallowed or any result silently discarded?
+> - Are there logic paths that appear correct but produce wrong or misleading output?
+>
+> Do NOT fix anything. Only report findings. Be specific: file, line, what's wrong, why it matters.
+> If you find nothing, say so — but look hard before you say that.
+
+### Evaluator procedure
+
+1. **Spawn** a sub-agent with the system prompt above
+2. **Give it read access** to: all source files, and the current `DEV-LOOP-CHECKLIST.md`
+3. **Do NOT give it** the ability to edit files — it reports findings only
+4. **Collect its output** as a list of findings
+5. **Append findings** to `DEV-LOOP-CHECKLIST.md` under `## Step 3E — Adversarial Evaluation`
+6. **Act on findings**: the generator agent (or a new sub-agent) reads the evaluator's findings and fixes the real issues. Log fixes under `## Step 3E — Fixes`
+7. **Proceed to Step 4** only after evaluator findings have been addressed
+
+### When to use
+
+- **Always recommended** for codebases with more than a handful of files
+- **Required** when the project's README or STATUS requests adversarial evaluation
+- **Skip only** for trivially small codebases where the overhead isn't justified — but note that subtle bugs exist even in small code
+
+### What the evaluator typically catches that the generator misses
+
+- Logic that looks correct but produces wrong output on edge-case input
+- Silently discarded return values (the code "works" but isn't doing what it claims)
+- Validation that exists but doesn't actually protect against the stated threat
+- Grammatically or semantically broken output that only surfaces with specific input combinations
+- Assumptions about input that are never checked (empty strings, negative numbers, unicode)
+
+---
+
 ## STEP 4 — Build & Test
 
 ### Use the commands from the checklist
@@ -279,58 +332,6 @@ Once Steps 4–6 are all green:
 2. Write a commit message that summarizes what the loop changed, drawn from the checklist
 3. Update `CHANGELOG.md` if the project maintains one
 4. Update `STATUS.md` if the project maintains one — remove resolved known issues, note anything newly discovered
-
----
-
-## STEP 3E — Adversarial Evaluation
-
-After Step 3 Phases A and B, spawn a **separate evaluator agent**. This agent did not write or review the code. Its only job is to find what the generator missed.
-
-### Why this is a separate agent
-
-The same agent that wrote or reviewed code is biased toward approving it. Anthropic found that agents "identified legitimate issues, then talked themselves into deciding they weren't a big deal and approved the work anyway." A dedicated skeptic with no attachment to the work finds different things. Tuning a standalone evaluator to be skeptical is far more tractable than making a generator critical of its own work.
-
-### Evaluator system prompt
-
-The evaluator agent should receive a system prompt like:
-
-> You are a skeptical code reviewer. You did not write this code. You have no attachment to it. Your only job is to find problems the previous reviewer missed.
->
-> Read the source files and the DEV-LOOP-CHECKLIST.md. For each file, ask:
-> - What did the reviewer approve that is actually wrong?
-> - What assumptions does this code make that aren't validated?
-> - What happens with empty input, null input, negative values, concurrent access?
-> - What edge cases were not considered?
-> - What looks correct at first read but breaks under adversarial or unexpected input?
-> - Is any error silently swallowed or any result silently discarded?
-> - Are there logic paths that appear correct but produce wrong or misleading output?
->
-> Do NOT fix anything. Only report findings. Be specific: file, line, what's wrong, why it matters.
-> If you find nothing, say so — but look hard before you say that.
-
-### Evaluator procedure
-
-1. **Spawn** a sub-agent with the system prompt above
-2. **Give it read access** to: all source files, and the current `DEV-LOOP-CHECKLIST.md`
-3. **Do NOT give it** the ability to edit files — it reports findings only
-4. **Collect its output** as a list of findings
-5. **Append findings** to `DEV-LOOP-CHECKLIST.md` under `## Step 3E — Adversarial Evaluation`
-6. **Act on findings**: the generator agent (or a new sub-agent) reads the evaluator's findings and fixes the real issues. Log fixes under `## Step 3E — Fixes`
-7. **Proceed to Step 4** only after evaluator findings have been addressed
-
-### When to use
-
-- **Always recommended** for codebases with more than a handful of files
-- **Required** when the project's README or STATUS requests adversarial evaluation
-- **Skip only** for trivially small codebases where the overhead isn't justified — but note that subtle bugs exist even in small code
-
-### What the evaluator typically catches that the generator misses
-
-- Logic that looks correct but produces wrong output on edge-case input
-- Silently discarded return values (the code "works" but isn't doing what it claims)
-- Validation that exists but doesn't actually protect against the stated threat
-- Grammatically or semantically broken output that only surfaces with specific input combinations
-- Assumptions about input that are never checked (empty strings, negative numbers, unicode)
 
 ---
 

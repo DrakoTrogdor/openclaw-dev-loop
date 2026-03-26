@@ -16,6 +16,7 @@ set -euo pipefail
 TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FIXTURE_DIR="$TESTS_DIR/fixture"  # canonical fixture — never modified by tests
 WORK_DIR=""                        # temp copy used by integration tests (set at runtime)
+WORK_DIR_USER=false                # true if --work-dir was provided (skip cleanup)
 MODE="structural"
 VERBOSE=false
 PASS=0
@@ -36,8 +37,13 @@ EOF
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --mode)      MODE="$2"; shift 2 ;;
-    --work-dir)  WORK_DIR="$2"; shift 2 ;;
+    --mode)      [[ $# -ge 2 ]] || { echo "Error: --mode requires an argument"; usage; exit 1; }
+                 MODE="$2"; shift 2 ;;
+    --work-dir)  [[ $# -ge 2 ]] || { echo "Error: --work-dir requires an argument"; usage; exit 1; }
+                 if [[ ! -d "$2" ]]; then
+                   echo "Error: --work-dir path does not exist: $2"; exit 1
+                 fi
+                 WORK_DIR="$2"; WORK_DIR_USER=true; shift 2 ;;
     -v|--verbose) VERBOSE=true; shift ;;
     -h|--help)   usage; exit 0 ;;
     *) echo "Unknown argument: $1"; usage; exit 1 ;;
@@ -65,6 +71,10 @@ assert_file_contains() {
 
 assert_file_not_contains() {
   local file="$1" pattern="$2" label="$3"
+  if [[ ! -f "$file" ]]; then
+    fail "$label — file missing: $file"
+    return
+  fi
   if ! grep -Eq "$pattern" "$file" 2>/dev/null; then
     pass "$label"
   else
@@ -74,10 +84,14 @@ assert_file_not_contains() {
 
 assert_build_passes() {
   local dir="$1" label="$2"
-  if bash "$dir/build.sh" --no-commit > /dev/null 2>&1; then
+  local build_output
+  if build_output="$(bash "$dir/build.sh" --no-commit 2>&1)"; then
     pass "$label"
   else
     fail "$label — build.sh exited non-zero"
+    echo "    ── build output ──"
+    echo "$build_output" | sed 's/^/    /'
+    echo "    ───────────────────"
   fi
 }
 
@@ -88,7 +102,6 @@ assert_build_passes() {
 setup_work_dir() {
   if [[ -n "$WORK_DIR" && -d "$WORK_DIR" ]]; then
     # Re-use an existing temp dir (agent already ran; just assert)
-    echo "$WORK_DIR"
     return
   fi
   WORK_DIR="$(mktemp -d /tmp/dev-loop-test-XXXXXX)"
@@ -96,10 +109,13 @@ setup_work_dir() {
   # Remove any leftover checklist from a previous run (shouldn't exist in the
   # canonical fixture, but guard anyway so assertions start clean)
   rm -f "$WORK_DIR/DEV-LOOP-CHECKLIST.md"
-  echo "$WORK_DIR"
 }
 
 teardown_work_dir() {
+  if [[ "$WORK_DIR_USER" == true ]]; then
+    echo "  [teardown] Skipping cleanup (user-provided --work-dir)"
+    return
+  fi
   if [[ -n "$WORK_DIR" && -d "$WORK_DIR" ]]; then
     rm -rf "$WORK_DIR"
     WORK_DIR=""
@@ -148,7 +164,8 @@ run_structural() {
 
   echo ""
   echo "  [fixture: planted flaw — Step 3a (no guard on times <= 0)]"
-  assert_file_not_contains "$FIXTURE_DIR/src/greeter.py" 'times.*<=.*0\|times < 1\|times <= 0' \
+  assert_file_not_contains "$FIXTURE_DIR/src/greeter.py" \
+    '^\s*(if|elif|while).*times\s*(<=\s*0|<\s*1|==\s*0)|raise.*times|ValueError.*times' \
     "no guard against times <= 0"
 
   echo ""
@@ -210,8 +227,8 @@ run_integration() {
   echo "── Integration Tests ────────────────────────────────────────────────────────"
   echo ""
 
-  local work
-  work="$(setup_work_dir)"
+  setup_work_dir
+  local work="$WORK_DIR"
   echo "  [setup] Temp fixture:  $work"
   echo "  [setup] Real fixture:  $FIXTURE_DIR (untouched)"
   echo ""
@@ -228,7 +245,7 @@ run_integration() {
   echo "  Expected findings in \$WORK_DIR/DEV-LOOP-CHECKLIST.md:"
   echo "    Step 1:  --reverse flag documented but not implemented"
   echo "    Step 2:  --times help text says 'default: 1' but code defaults to 3"
-  echo "    Step 3:  no guard on times <= 0 (infinite loop)"
+  echo "    Step 3:  no guard on times <= 0 (silently produces no output)"
   echo "    Step 3:  encode() result silently discarded"
   echo "    Step 3:  unused import os"
   echo "    Step 3E: empty name produces 'Hello, !' (adversarial eval)"
@@ -242,28 +259,34 @@ run_integration() {
 
     echo "  [Step 1 findings]"
     assert_file_contains "$work/DEV-LOOP-CHECKLIST.md" \
-      "reverse" "Checklist mentions --reverse (Step 1)"
+      "--reverse.*not implemented|--reverse.*missing|--reverse.*documented.*not" \
+      "Checklist mentions --reverse doc/code mismatch (Step 1)"
 
     echo "  [Step 2 findings]"
     assert_file_contains "$work/DEV-LOOP-CHECKLIST.md" \
-      "default" "Checklist mentions default mismatch (Step 2)"
+      "default.*1.*3|default.*3.*1|default.*mismatch|help.*default" \
+      "Checklist mentions default mismatch (Step 2)"
 
     echo "  [Step 3 findings]"
     assert_file_contains "$work/DEV-LOOP-CHECKLIST.md" \
-      "times|guard|infinite|<= 0" "Checklist mentions times<=0 guard (Step 3a)"
+      "times.*(guard|<=.*0|negative|zero)|no.*(guard|validation).*times" \
+      "Checklist mentions times<=0 guard (Step 3a)"
     assert_file_contains "$work/DEV-LOOP-CHECKLIST.md" \
-      "encode" "Checklist mentions encode (Step 3b)"
+      "encode.*discard|discard.*encode|\.encode\(.*unused|result.*encode.*lost" \
+      "Checklist mentions encode result discarded (Step 3b)"
     assert_file_contains "$work/DEV-LOOP-CHECKLIST.md" \
-      "unused|import os" "Checklist mentions unused import (Step 3c)"
+      "unused.*import|import os.*unused|import os.*never" \
+      "Checklist mentions unused import (Step 3c)"
 
     echo "  [Step 3E findings (adversarial)]"
     assert_file_contains "$work/DEV-LOOP-CHECKLIST.md" \
-      "empty.*name|Hello, !|name.*valid|name.*empty" \
+      "empty.*name.*Hello|Hello, !|name.*empty.*greeting|empty.*name.*broken" \
       "Checklist mentions empty name issue (Step 3E)"
 
     echo "  [Step 4 build result]"
     assert_file_contains "$work/DEV-LOOP-CHECKLIST.md" \
-      "[Pp]ass|green|0 failed" "Checklist records passing build (Step 4)"
+      "[Pp]ass(ed|ing)|tests.*green|0 fail|all.*pass" \
+      "Checklist records passing build (Step 4)"
 
     echo "  [fixture not destroyed]"
     assert_file_contains "$FIXTURE_DIR/src/greeter.py" \

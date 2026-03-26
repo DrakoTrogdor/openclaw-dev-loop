@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # build.sh
-# Syncs skill files into the OpenClaw skills directory, then stages and commits.
+# Runs structural tests, syncs skill files into the OpenClaw skills directory,
+# then stages, commits, and pushes.
 #
 # Usage: ./build.sh [--msg "commit body"] [--skills-dir <path>] [--no-commit]
 #   --msg          Optional commit body appended to the timestamp title
-#   --skills-dir   Override the target skills directory (default: /workspace/skills/dev-loop)
-#   --no-commit    Sync files only; skip git add + commit
+#   --skills-dir   Override the target skills directory (default: auto-detected)
+#   --no-commit    Run tests and sync files; skip git add, commit, and push
 
 set -euo pipefail
 
@@ -30,7 +31,8 @@ usage() {
   cat <<EOF
 Usage: ./build.sh [options]
 
-Syncs skill files into the OpenClaw skills directory, then commits and pushes.
+Runs structural tests, syncs skill files into the OpenClaw skills directory,
+then commits and pushes.
 
 Options:
   --msg <message>       Commit body appended to the timestamp title
@@ -39,7 +41,7 @@ Options:
                         Auto-detected in order:
                           1. <repo-parent>/skills/dev-loop  (if sibling skills/ exists)
                           2. ~/.openclaw/skills/dev-loop    (standard install location)
-  --no-commit           Sync files only; skip git add, commit, and push
+  --no-commit           Run tests and sync files; skip git add, commit, and push
   -h, --help            Show this help message
 
 Commit message format:
@@ -56,8 +58,10 @@ EOF
 # Parse args
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --msg)        COMMIT_BODY="$2"; shift 2 ;;
-    --skills-dir) SKILLS_DIR="$2"; SKILLS_DIR_OVERRIDE="$2"; shift 2 ;;
+    --msg)        [[ $# -ge 2 ]] || { echo "Error: --msg requires an argument"; usage; exit 1; }
+                  COMMIT_BODY="$2"; shift 2 ;;
+    --skills-dir) [[ $# -ge 2 ]] || { echo "Error: --skills-dir requires an argument"; usage; exit 1; }
+                  SKILLS_DIR="$2"; SKILLS_DIR_OVERRIDE="$2"; shift 2 ;;
     --no-commit)  NO_COMMIT=true;   shift   ;;
     -h|--help)    usage; exit 0             ;;
     *) echo "Unknown argument: $1"; echo ""; usage; exit 1 ;;
@@ -114,7 +118,7 @@ if git diff --cached --quiet; then
 else
   git commit -m "$COMMIT_MSG"
   echo "[build] Committed: $COMMIT_MSG"
+  BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+  git push origin "$BRANCH"
+  echo "[build] Pushed to origin/$BRANCH."
 fi
-
-git push origin main
-echo "[build] Pushed to origin/main."

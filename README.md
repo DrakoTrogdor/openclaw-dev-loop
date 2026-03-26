@@ -77,7 +77,7 @@ Every finding is written to `DEV-LOOP-CHECKLIST.md` in the target project root.
 1. Runs structural tests (`tests/run-tests.sh`)
 2. Syncs `SKILL.md` + `references/DEV-LOOP.md` into the OpenClaw skills directory
 3. Commits all changes with a timestamped message
-4. Pushes to `origin/main`
+4. Pushes to the current branch (only when a commit was made)
 
 **Skills directory auto-detection:**
 1. `--skills-dir` flag (explicit override, always wins)
@@ -135,10 +135,10 @@ Integration assertions check:
 |----|------|------|---------------------------|
 | F1 | Step 1 | README documents `--reverse` flag | Flag does not exist in code |
 | F2 | Step 2 | `--times` help text says `default: 1` | Actual argparse default is `3` |
-| F3a | Step 3 | No guard on `--times 0` | `while i < args.times` loops forever when times=0 (never enters loop but combined with negative values would be wrong) |
+| F3a | Step 3 | No guard on `--times 0` | `while i < args.times` silently produces no output when times ≤ 0 (loop body never runs; no error raised for invalid input) |
 | F3b | Step 3 | `args.name.encode("ascii")` | Result silently discarded — intent was to validate ASCII-only names but the error isn't caught or used |
 | F3c | Step 3 | `import os` | Unused import |
-| F4 | Step 3E | `build_greeting` accepts negative shout | Passes `shout=True` through but `greeting.upper()` on an empty name (`--name ""`) returns `"HELLO, !"` — the greeting is grammatically broken but no validation catches it (designed to test adversarial evaluation) |
+| F4 | Step 3E | `build_greeting` has no validation on empty name | Empty `--name ""` produces `"Hello, !"` (or `"HELLO, !"` with `--shout`) — a grammatically broken greeting with no validation to catch it (designed to test adversarial evaluation) |
 
 **Do not fix these flaws in the fixture.** They are the test cases. If the agent fixes them during an integration run, the structural tests will detect the fixture is corrupted.
 
