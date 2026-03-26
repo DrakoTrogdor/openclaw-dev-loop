@@ -1,6 +1,6 @@
 ---
 name: dev-loop
-description: Run a structured review-and-fix cycle on a codebase: sync docs to code, review and fix bugs/security/quality issues, build and test, then re-sync. Works with any language and toolchain (Rust, Node, Python, Go, etc.). Use when asked to review, audit, clean up, or do a full pass on a codebase — or when asked to "run the dev loop" on a project.
+description: "Run a structured review-and-fix cycle on a codebase: sync docs to code, review and fix bugs/security/quality issues, build and test, then re-sync. Works with any language and toolchain (Rust, Node, Python, Go, etc.). Use when asked to review, audit, clean up, or do a full pass on a codebase — or when asked to run the dev loop on a project."
 ---
 
 # Dev Loop

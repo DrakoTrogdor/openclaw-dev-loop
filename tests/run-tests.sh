@@ -205,11 +205,22 @@ run_structural() {
   assert_file_exists "$TESTS_DIR/../references/DEV-LOOP.md"      "references/DEV-LOOP.md"
 
   echo ""
-  echo "  [skill: SKILL.md has required frontmatter]"
+  echo "  [skill: SKILL.md has valid YAML frontmatter]"
   assert_file_contains "$TESTS_DIR/../SKILL.md" "^name:" \
     "SKILL.md has name field"
   assert_file_contains "$TESTS_DIR/../SKILL.md" "^description:" \
     "SKILL.md has description field"
+  # Validate YAML frontmatter is actually parseable
+  if python3 -c "
+import yaml, sys
+with open(sys.argv[1]) as f:
+    fm = f.read().split('---')[1]
+yaml.safe_load(fm)
+" "$TESTS_DIR/../SKILL.md" 2>/dev/null; then
+    pass "SKILL.md YAML frontmatter is valid"
+  else
+    fail "SKILL.md YAML frontmatter is invalid (colons, quotes, or syntax error)"
+  fi
 
   echo ""
   echo "  [skill: DEV-LOOP.md has all steps including adversarial]"
