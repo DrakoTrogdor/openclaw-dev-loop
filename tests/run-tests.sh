@@ -162,6 +162,15 @@ run_structural() {
     "unused import os present"
 
   echo ""
+  echo "  [fixture: planted flaw — Step 3E (adversarial: empty name produces broken output)]"
+  assert_file_not_contains "$FIXTURE_DIR/src/greeter.py" \
+    'if not name|if len\(name\) == 0|if name ==' \
+    "no validation on empty name in build_greeting"
+  assert_file_contains "$FIXTURE_DIR/src/greeter.py" \
+    'f"Hello, \{name\}!"' \
+    "f-string greeting present (breaks on empty name)"
+
+  echo ""
   echo "  [fixture: build passes (tests are green before dev-loop runs)]"
   assert_build_passes "$FIXTURE_DIR" "fixture build.sh --no-commit"
 
@@ -178,8 +187,8 @@ run_structural() {
     "SKILL.md has description field"
 
   echo ""
-  echo "  [skill: DEV-LOOP.md has all 6 steps]"
-  for step in "STEP 1" "STEP 2" "STEP 3" "STEP 4" "STEP 5" "STEP 6"; do
+  echo "  [skill: DEV-LOOP.md has all steps including adversarial]"
+  for step in "STEP 1" "STEP 2" "STEP 3" "STEP 3E" "STEP 4" "STEP 5" "STEP 6"; do
     assert_file_contains "$TESTS_DIR/../references/DEV-LOOP.md" "$step" \
       "DEV-LOOP.md contains $step"
   done
@@ -217,12 +226,13 @@ run_integration() {
   echo "       to assert against the checklist without recreating the temp dir."
   echo ""
   echo "  Expected findings in \$WORK_DIR/DEV-LOOP-CHECKLIST.md:"
-  echo "    Step 1: --reverse flag documented but not implemented"
-  echo "    Step 2: --times help text says 'default: 1' but code defaults to 3"
-  echo "    Step 3: no guard on times <= 0 (infinite loop)"
-  echo "    Step 3: encode() result silently discarded"
-  echo "    Step 3: unused import os"
-  echo "    Step 4: build passes (all 4 pytest tests green)"
+  echo "    Step 1:  --reverse flag documented but not implemented"
+  echo "    Step 2:  --times help text says 'default: 1' but code defaults to 3"
+  echo "    Step 3:  no guard on times <= 0 (infinite loop)"
+  echo "    Step 3:  encode() result silently discarded"
+  echo "    Step 3:  unused import os"
+  echo "    Step 3E: empty name produces 'Hello, !' (adversarial eval)"
+  echo "    Step 4:  build passes (all 4 pytest tests green)"
   echo ""
 
   # ── Assertions (run if WORK_DIR already has a checklist) ─────────────────────
@@ -245,6 +255,11 @@ run_integration() {
       "encode" "Checklist mentions encode (Step 3b)"
     assert_file_contains "$work/DEV-LOOP-CHECKLIST.md" \
       "unused|import os" "Checklist mentions unused import (Step 3c)"
+
+    echo "  [Step 3E findings (adversarial)]"
+    assert_file_contains "$work/DEV-LOOP-CHECKLIST.md" \
+      "empty.*name|Hello, !|name.*valid|name.*empty" \
+      "Checklist mentions empty name issue (Step 3E)"
 
     echo "  [Step 4 build result]"
     assert_file_contains "$work/DEV-LOOP-CHECKLIST.md" \

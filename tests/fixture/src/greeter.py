@@ -2,11 +2,14 @@
 greeter — a simple CLI that greets users by name.
 
 PLANTED FLAWS (for dev-loop testing):
-  [Step 1] README documents --reverse flag; this flag does not exist in the code.
-  [Step 2] --times help text says "default: 1" but argparse default is 3.
+  [Step 1]  README documents --reverse flag; this flag does not exist in the code.
+  [Step 2]  --times help text says "default: 1" but argparse default is 3.
   [Step 3a] times loop has no guard against times <= 0 (infinite loop on --times 0).
   [Step 3b] name.encode() result is silently discarded; the intent was validation.
   [Step 3c] Unused import: `os`.
+  [Step 3E] build_greeting doesn't validate name; empty string produces "Hello, !"
+            and shout mode produces "HELLO, !" — grammatically broken output that
+            looks correct in a code review because the logic is technically right.
 """
 
 import argparse
@@ -14,6 +17,11 @@ import os  # unused import — [Step 3c]
 
 
 def build_greeting(name: str, shout: bool) -> str:
+    # BUG [Step 3E]: no validation on name — empty string produces "Hello, !"
+    # and shout produces "HELLO, !" — the logic is "correct" (f-string works,
+    # upper() works) but the output is grammatically broken. A standard code
+    # review will see working code; an adversarial reviewer will ask "what
+    # happens when name is empty?" and catch the broken output.
     greeting = f"Hello, {name}!"
     if shout:
         return greeting.upper()
