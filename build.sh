@@ -14,13 +14,39 @@ SKILLS_DIR="/workspace/skills/dev-loop"
 COMMIT_BODY=""
 NO_COMMIT=false
 
+usage() {
+  cat <<EOF
+Usage: ./build.sh [options]
+
+Syncs skill files into the OpenClaw skills directory, then commits and pushes.
+
+Options:
+  --msg <message>       Commit body appended to the timestamp title
+                        e.g. --msg "feat: improve step 3 instructions"
+  --skills-dir <path>   Override the target skills directory
+                        (default: /workspace/skills/dev-loop)
+  --no-commit           Sync files only; skip git add, commit, and push
+  -h, --help            Show this help message
+
+Commit message format:
+  YYYY-MM-DD HH:MM:SS - <msg>   (with --msg)
+  YYYY-MM-DD HH:MM:SS           (without --msg)
+
+Examples:
+  ./build.sh --msg "feat: add adversarial eval section"
+  ./build.sh --no-commit
+  ./build.sh --msg "fix: typo" --skills-dir ~/.openclaw/skills/dev-loop
+EOF
+}
+
 # Parse args
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --msg)        COMMIT_BODY="$2"; shift 2 ;;
     --skills-dir) SKILLS_DIR="$2";  shift 2 ;;
     --no-commit)  NO_COMMIT=true;   shift   ;;
-    *) echo "Unknown argument: $1"; exit 1  ;;
+    -h|--help)    usage; exit 0             ;;
+    *) echo "Unknown argument: $1"; echo ""; usage; exit 1 ;;
   esac
 done
 
