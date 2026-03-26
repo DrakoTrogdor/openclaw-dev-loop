@@ -18,12 +18,15 @@ dev-loop/
 │   └── DEV-LOOP.md                   ← full step-by-step protocol (loaded by agent)
 └── tests/
     ├── run-tests.sh                  ← structural + integration test runner
-    └── fixture/                      ← test project with planted flaws
-        ├── README.md                 ← fixture docs (deliberately inaccurate)
-        ├── STATUS.md                 ← fixture known issues
-        ├── build.sh                  ← fixture build/test entry point
-        ├── src/greeter.py            ← fixture source with planted bugs
-        └── tests/test_greeter.py     ← fixture pytest suite
+    └── fixtures/                     ← test projects with planted flaws
+        ├── python-greeter/           ← Python CLI fixture
+        │   ├── README.md, STATUS.md, build.sh
+        │   ├── src/greeter.py        ← source with planted bugs
+        │   └── tests/test_greeter.py
+        └── rust-counter/             ← Rust CLI fixture
+            ├── README.md, STATUS.md, build.sh
+            ├── Cargo.toml
+            └── src/main.rs           ← source with planted bugs
 ```
 
 ### What lives where

@@ -1,0 +1,5 @@
+[package]
+name = "counter"
+version = "0.1.0"
+edition = "2021"
+description = "Counts occurrences of a word in stdin"

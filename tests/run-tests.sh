@@ -14,7 +14,7 @@
 set -euo pipefail
 
 TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FIXTURE_DIR="$TESTS_DIR/fixture"  # canonical fixture — never modified by tests
+FIXTURE_DIR="$TESTS_DIR/fixtures/python-greeter"  # default fixture — never modified by tests
 WORK_DIR=""                        # temp copy used by integration tests (set at runtime)
 WORK_DIR_USER=false                # true if --work-dir was provided (skip cleanup)
 MODE="structural"
