@@ -71,6 +71,23 @@ dev-loop/
 
 Install via [ClaWHub](https://clawhub.ai) or place the `dev-loop/` folder in your OpenClaw skills directory.
 
+## Development
+
+After editing `SKILL.md` or `references/DEV-LOOP.md`, run `build.sh` to sync into your local skills folder and commit:
+
+```bash
+# Sync + commit with a message
+./build.sh --msg "feat: describe what changed"
+
+# Sync only, no commit
+./build.sh --no-commit
+
+# Override the target skills directory
+./build.sh --msg "fix: tweak" --skills-dir ~/.openclaw/skills/dev-loop
+```
+
+Commit messages are formatted as `YYYY-MM-DD HH:MM:SS - <msg>` (or just the timestamp if `--msg` is omitted).
+
 ---
 
 ## Background
