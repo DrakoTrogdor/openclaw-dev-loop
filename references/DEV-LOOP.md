@@ -8,10 +8,11 @@ Works with any language, any toolchain. Report every finding and fix as you go.
 ## Overview
 
 ```
-DISCOVER → STEP 1 (docs↔code) → STEP 2 (user text↔code)
-       → STEP 3 (code review: A file-by-file → B cross-file → E adversarial eval)
-       → STEP 4 (build & test) ⟵──── STEP 5 (fix failures) ────┘
-       → STEP 6 (re-sync docs)  → COMMIT
+DISCOVER (read docs, map project, baseline build)
+  → STEP 1 (docs↔code) → STEP 2 (user text↔code)
+  → STEP 3 (code review: A file-by-file → B cross-file → E adversarial eval)
+  → STEP 4 (build & test) ⟵──── STEP 5 (fix failures) ────┘
+  → STEP 6 (re-sync docs) → COMMIT
 ```
 
 The loop runs in two modes:
@@ -32,13 +33,19 @@ This is the single source of truth for what was found, what was fixed, and what'
 
 ```markdown
 ## Step N — <title>
-- [x] Finding: <description> → Fixed: <what changed> (<file>)
-- [ ] Finding: <description> → TODO: <reason it's deferred>
+- [x] **[sev:high]** Finding: <description> → Fixed: <what changed> (<file>)
+- [ ] **[sev:med]** Finding: <description> → TODO: <reason it's deferred>
+- [x] **[sev:low]** Finding: <description> → Fixed: <what changed> (<file>)
 - [x] No issues found in <area>
 ```
 
+**Severity guide:**
+- **high** — Bugs that produce wrong output, crash, lose data, or create security vulnerabilities
+- **med** — Misleading docs/help text, missing input validation, code quality issues that risk future bugs
+- **low** — Cosmetic issues, unused imports/variables, minor style inconsistencies
+
 **Rules:**
-- **Between runs:** Clear the entire checklist at the start of a new run (see *Before You Start* §5). A new run starts fresh.
+- **Between runs:** Clear the entire checklist at the start of a new run (see *Before You Start* §6). A new run starts fresh.
 - **Within a run:** Each step appends its own section. Never delete or edit sections from prior steps.
 - In sub-agent mode: each sub-agent writes its section before reporting done.
 - The orchestrator reads the checklist between steps to gate progression.
@@ -49,8 +56,9 @@ This is the single source of truth for what was found, what was fixed, and what'
 
 Context discipline is non-negotiable. A flooded context window causes exactly the failure modes this loop is designed to catch.
 
-- **Never load the entire codebase at once.** Read files as needed; move on when done.
-- **Steps 1–2:** Read docs + one source file at a time. Don't hold multiple source files simultaneously.
+- **Default: never load the entire codebase at once.** Read files as needed; move on when done.
+- **Small projects (~10 source files or fewer):** You can be more flexible — holding several files in context simultaneously is fine if it helps you spot cross-file issues. The rule targets codebases where loading everything would degrade review quality.
+- **Steps 1–2:** Read docs + one source file at a time. Don't hold multiple source files simultaneously (unless the project is small enough that this is impractical).
 - **Step 3:** Has its own per-file protocol — see below.
 - **Step 4:** Only needs build/test output, not source files.
 - **Step 5:** Needs build/test output + the source files that caused failures.
@@ -83,6 +91,8 @@ These are your ground truth. They tell you what the project thinks it is and how
 
 If `README.md` or `STATUS.md` reference a specific script as the entry point for build/test/deploy (e.g. `./build.sh`, `make release`, `./scripts/deploy.sh`), **that script is authoritative**. Use it. Do not substitute bare toolchain commands.
 
+**If neither `README.md` nor `STATUS.md` exists:** proceed to step 2 and derive the toolchain from manifests and config files. Note the absence in the checklist — this is itself a finding for Step 1 (missing docs).
+
 ### 2. Discover the project
 
 List all source files, config manifests (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `Makefile`, etc.), and test scripts. Build a map before touching anything.
@@ -109,7 +119,16 @@ If README/STATUS didn't document the build/test/deploy commands fully, identify 
 
 If `STATUS.md` exists, note any known issues or in-progress work. Do not accidentally "fix" something that's intentionally incomplete or mid-refactor. Flag these in the checklist as context, not findings.
 
-### 5. Create `DEV-LOOP-CHECKLIST.md`
+### 5. Verify a clean baseline build
+
+Run the build + test commands **before making any changes**. Record the result:
+
+- **If green:** Note "baseline build clean" in the checklist. Proceed.
+- **If failing:** Record the pre-existing failures in the checklist under `## Baseline`. These are not your findings — they are context. Do not confuse pre-existing failures with issues you introduce in later steps.
+
+This baseline matters because Steps 4–5 use "all tests green" as the exit gate. You need to know what was already broken.
+
+### 6. Create `DEV-LOOP-CHECKLIST.md`
 
 Create it in the project root (or clear it if it exists from a prior run). Record the confirmed build/test/deploy/commit commands at the top so every subsequent step and sub-agent has them without re-reading docs:
 
@@ -125,6 +144,9 @@ Create it in the project root (or clear it if it exists from a prior run). Recor
 
 ## Known issues from STATUS.md
 - <any flagged items>
+
+## Baseline
+- Build: <pass/fail — if fail, note pre-existing failures>
 ```
 
 ---
@@ -190,7 +212,13 @@ Review each source file **individually**, one at a time:
 
 ### Phase B — Cross-file issues
 
-After all files are reviewed individually, address the cross-file issues logged in Phase A. These are problems spanning module boundaries: mismatched types across a call chain, inconsistent error handling patterns, shared state handled differently in different files, or assumptions one file makes about another's behavior.
+After all files are reviewed individually, address the cross-file issues logged in Phase A. These are problems spanning module boundaries:
+
+- Mismatched types or formats across a call chain (caller sends string, callee expects int)
+- Inconsistent error handling patterns (one module returns errors, another panics for the same category)
+- Shared state handled differently in different files (one normalizes data before storing, another assumes raw data when reading)
+- Assumptions one file makes about another's behavior (e.g., "this function always returns non-empty" — does it?)
+- Data transformation disagreements: function A transforms data one way on write, function B assumes a different format on read (case normalization, encoding, delimiter choice)
 
 For each cross-file issue: load only the 2–3 relevant files together and fix as a group.
 
@@ -206,14 +234,30 @@ For each cross-file issue: load only the 2–3 relevant files together and fix a
 - File handles, connections, and descriptors closed on all paths (success and error)?
 - Bounded reads — stdin/network reads have size limits?
 - No unbounded allocations from untrusted input?
+- Temp files cleaned up on all exit paths (including error/signal)?
 
 #### Correctness
-- Lengths, sizes, and indices validated before use?
+- Lengths, sizes, and indices validated before use? (Off-by-one: `<` vs `<=`, 0-based vs 1-based)
 - Version/format checks before processing?
 - Decode/parse errors surfaced with context, not silently swallowed?
+- Return values actually used — is any function called for a side effect but its result silently discarded? (e.g., `string.encode()` called but return value not assigned or checked)
 - Strict parsing where appropriate (reject unknown fields, trailing data)?
-- Edge cases covered: empty input, max-size input, unicode, null bytes?
+- Edge cases covered: empty input, zero/negative numeric args, max-size input, unicode, null bytes?
 - Regex/pattern injection: is user input or variable data passed to `grep`, `sed`, `[[ =~ ]]`, or other regex engines without escaping metacharacters (`.`, `*`, `?`, `+`, `|`, `(`, etc.)? Unescaped variables in patterns can silently match or delete unrelated data.
+- Integer overflow/underflow for arithmetic on untrusted input?
+- Type coercion: implicit conversions that lose precision or change semantics (e.g., float→int truncation, string→number in JS, lossy encoding)?
+
+#### Error handling
+- Are errors propagated with enough context to diagnose the problem? (Not just "error occurred" — which file? which input? what was expected?)
+- Are any errors silently caught and ignored (empty `except:`, `catch {}`, `|| true`)?
+- Do error paths clean up resources (close files, release locks, remove temp files)?
+- Are error types consistent within a module? (Don't mix panics, Result, and bare strings for the same category of failure)
+
+#### Concurrency & state (if applicable)
+- Shared mutable state protected by appropriate synchronization?
+- No data races on concurrent access to files, databases, or shared memory?
+- Lock ordering consistent (no deadlock risk from acquiring locks in different orders)?
+- Global/module-level mutable state — is initialization order guaranteed?
 
 #### Code quality
 - No dead or duplicate functions
@@ -242,20 +286,33 @@ The evaluator agent should receive a system prompt like:
 
 > You are a skeptical code reviewer. You did not write this code. You have no attachment to it. Your only job is to find problems the previous reviewer missed.
 >
-> Read the source files and the DEV-LOOP-CHECKLIST.md. For each file, ask:
-> - What did the reviewer approve that is actually wrong?
-> - What assumptions does this code make that aren't validated?
-> - What happens with empty input, null input, negative values, concurrent access?
-> - What edge cases were not considered?
-> - What looks correct at first read but breaks under adversarial or unexpected input?
-> - Is any error silently swallowed or any result silently discarded?
-> - Are there logic paths that appear correct but produce wrong or misleading output?
-> - Are there resource leaks (file handles, connections, temp files) on error paths?
-> - Are there security issues the reviewer accepted too easily (hardcoded secrets, missing input validation, TOCTOU)?
-> - Are there dead or duplicate functions, unused imports, or unused variables?
-> - Are there unresolved TODO/FIXME/HACK comments that indicate incomplete work?
-> - Do build/lint tools produce warnings that were ignored?
-> - Do functions that produce and consume the same data agree on its format (case, encoding, delimiters, quoting)? For example: function A lowercases tags before storing, but function B searches with the original case — they look correct in isolation but fail when composed.
+> **Process:** Read the source files and the DEV-LOOP-CHECKLIST.md (which shows what the previous reviewer already found and fixed). Focus on what they MISSED, not on re-reporting what they already caught.
+>
+> **For each source file, systematically ask:**
+>
+> *Edge-case inputs:*
+> - What happens with empty string input? Zero? Negative numbers? Null/None/nil?
+> - What happens at boundary values (max int, empty collections, single-element collections)?
+> - What input would a malicious user craft to break this?
+>
+> *Silent failures:*
+> - Is any return value silently discarded? (A function is called, it returns something, and the caller ignores it — this often means the call's purpose is defeated)
+> - Is any error silently swallowed (empty catch/except, `|| true`, ignored Result)?
+> - Are there logic paths that produce wrong or misleading output without raising an error?
+>
+> *Cross-function contracts:*
+> - Do functions that produce and consume the same data agree on its format (case, encoding, delimiters, quoting)? Example: function A lowercases tags before storing, but function B searches with the original case — they look correct in isolation but fail when composed.
+> - Do caller and callee agree on units, ranges, and semantics of shared parameters?
+>
+> *Compositional bugs:*
+> - Does the code work correctly when individual correct-looking components interact? (Each function passes its own unit test but the pipeline produces wrong output)
+> - Are there ordering assumptions between operations that aren't enforced?
+>
+> *Things reviewers habitually overlook:*
+> - User-facing output quality: does the output make grammatical/semantic sense for ALL valid inputs, not just the common case?
+> - Unused imports, variables, or dead code the reviewer may have noticed but dismissed
+> - TODO/FIXME/HACK comments indicating incomplete work
+> - Build/lint warnings that were present but not addressed
 >
 > Do NOT fix anything. Only report findings. Be specific: file, line, what's wrong, why it matters.
 > If you find nothing, say so — but look hard before you say that.
@@ -300,8 +357,9 @@ Run the build command. If the script auto-commits, use its `--no-commit` equival
 - Test failures — note which tests failed and why
 - Warnings from the build or lint step that indicate real issues
 - Any deploy/asset/service steps that silently fail
+- **Compare against baseline:** If the baseline build (from *Before You Start* §5) had pre-existing failures, distinguish those from new failures introduced by your changes
 
-**Goal:** Build exits 0, all tests pass, no meaningful warnings.
+**Goal:** Build exits 0, all tests pass, no meaningful warnings. If the baseline had pre-existing failures, your changes must not make them worse — and ideally should fix them.
 
 **Append results to `DEV-LOOP-CHECKLIST.md` under `## Step 4`.**
 
@@ -358,12 +416,13 @@ Every finding goes in `DEV-LOOP-CHECKLIST.md` as it happens. At the end, append:
 
 ```markdown
 ## Summary
-- **Step 1:** N docs fixes
+- **Baseline:** <clean / N pre-existing failures>
+- **Step 1:** N docs fixes (H high, M med, L low)
 - **Step 2:** N help text fixes
 - **Step 3:** N code fixes (M single-file, K cross-file)
 - **Step 3E:** N adversarial findings, M fixed
 - **Step 4:** Build status, test results
 - **Step 5:** N fix iterations
 - **Step 6:** N re-sync fixes
-- **Total:** N files modified
+- **Total:** N files modified, H high-severity issues resolved
 ```
