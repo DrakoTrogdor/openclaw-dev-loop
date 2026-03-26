@@ -146,6 +146,7 @@ Create it in the project root (or clear it if it exists from a prior run). Recor
 | Feature list | No stale features listed; no implemented features missing from docs |
 | Build instructions | Correct toolchain, required system libs, editions/versions |
 | Test instructions | Correct commands, required tools, expected output |
+| Structured metadata | YAML/TOML/JSON frontmatter, config files — parseable? Values with special characters (colons, quotes) properly quoted? |
 
 **Rule:** Edit docs to match code. Do not change code to match docs in this step.
 
